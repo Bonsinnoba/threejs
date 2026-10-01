@@ -1,0 +1,62 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #eef2f6;
+  background: #0c1016;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; }
+
+#app {
+  display: grid;
+  grid-template-columns: 220px 1fr 270px;
+}
+
+.sidebar {
+  padding: 20px 16px;
+  background: #171d26;
+  border-color: #2b3440;
+  border-style: solid;
+  z-index: 2;
+}
+.equipment-sidebar { border-width: 0 1px 0 0; }
+.experiment-sidebar { border-width: 0 0 0 1px; }
+
+h2 { margin: 0 0 10px; font-size: 20px; }
+.hint, .workspace-help, .experiment-info { color: #aeb8c5; font-size: 13px; line-height: 1.45; }
+
+.equipment-item, .experiment-button {
+  width: 100%;
+  margin: 7px 0;
+  padding: 11px 12px;
+  border: 1px solid #3a4654;
+  border-radius: 7px;
+  background: #222b36;
+  color: #eef2f6;
+  text-align: left;
+  cursor: pointer;
+}
+.equipment-item:hover, .experiment-button:hover { background: #2d3845; }
+
+.experiment-info {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #303a47;
+  border-radius: 8px;
+  background: #121820;
+}
+.experiment-info strong { color: #eef2f6; }
+
+.workspace { position: relative; min-width: 0; }
+#scene-container { position: absolute; inset: 0; }
+#scene-container canvas { display: block; width: 100%; height: 100%; }
+.workspace-help {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: rgba(12, 16, 22, 0.78);
+  pointer-events: none;
+}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual Lab — Milestone 1</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar equipment-sidebar">
+        <h2>Equipment</h2>
+        <p class="hint">Drag an item into the lab.</p>
+        <button class="equipment-item" data-equipment="beaker">Beaker</button>
+        <button class="equipment-item" data-equipment="flask">Flask</button>
+        <button class="equipment-item" data-equipment="funnel">Funnel</button>
+      </aside>
+
+      <main class="workspace">
+        <div id="scene-container" aria-label="3D laboratory workspace"></div>
+        <div class="workspace-help">Drag equipment from the left shelf and drop it on the bench.</div>
+      </main>
+
+      <aside class="sidebar experiment-sidebar">
+        <h2>Experiments</h2>
+        <button class="experiment-button" data-experiment="hookes-law">Hooke's Law</button>
+        <button class="experiment-button" data-experiment="acid-base">Acid / Base Mixing</button>
+        <button class="experiment-button" data-experiment="circuit">Simple Circuit</button>
+        <div id="experiment-info" class="experiment-info">
+          <strong>Select an experiment</strong>
+          <p>Milestone 1 establishes the lab shell and interactive equipment workspace.</p>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

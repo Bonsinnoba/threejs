@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Virtual Laboratory</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+<div class="brand"><h1>Virtual Laboratory</h1><p>Three.js research prototype</p></div>
+<div class="section-title">Equipment</div>
+<div class="equipment-list">
+<button class="tool" data-equipment="beaker"><strong>Beaker</strong><span>Add to bench</span></button>
+<button class="tool" data-equipment="flask"><strong>Flask</strong><span>Add to bench</span></button>
+<button class="tool" data-equipment="test-tube"><strong>Test Tube</strong><span>Add to bench</span></button>
+<button class="tool" data-equipment="ruler"><strong>Ruler</strong><span>Add to bench</span></button>
+</div>
+<div class="status"><strong>Prototype status</strong><br>Equipment can be added and moved around the 3D bench. Circuit components can also be dragged into position.<br><br><strong>Model attribution</strong><br>Erlenmeyer flask by Poly by Google [CC-BY] via Poly Pizza.</div>
+</aside>
+<main class="lab"><canvas id="lab-canvas"></canvas><div class="hint">Drag equipment. Use the mouse to orbit the camera.</div></main>
+<aside class="sidebar right">
+<div class="section-title">Experiments</div>
+<div class="experiment-list">
+<button class="experiment active" data-experiment="hooke"><strong>Hooke's Law</strong><span>Spring extension and mass</span></button>
+<button class="experiment" data-experiment="acid-base"><strong>Acid / Base</strong><span>Mixing and observations</span></button>
+<button class="experiment" data-experiment="circuit"><strong>Simple Circuit</strong><span>Battery, switch and bulb</span></button>
+</div>
+<div id="instructions" class="instructions"></div>
+<div id="experiment-controls" class="experiment-controls"></div>
+<button id="reset" class="reset">Reset laboratory</button>
+</aside>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
