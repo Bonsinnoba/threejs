@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { loadModel, normalizeModel } from './model-loader.js';
+import { loadModel, normalizeModel, setupModelShadows, cloneModel } from './model-loader.js';
 import {
   createPhysicsWorld,
   createSpringSystem,
@@ -16,6 +16,12 @@ const canvas = document.querySelector('#lab-canvas');
 const lab = document.querySelector('.lab');
 const instructions = document.querySelector('#instructions');
 const experimentControls = document.querySelector('#experiment-controls');
+const experimentSelect = document.getElementById('experiment-select');
+const leftSidebar = document.getElementById('left-sidebar');
+const rightSidebar = document.getElementById('right-sidebar');
+const toggleLeftBtn = document.getElementById('toggle-left-sidebar');
+const toggleRightBtn = document.getElementById('toggle-right-sidebar');
+const app = document.querySelector('.app');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xdbe4e8);
@@ -39,6 +45,21 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 1.2, 0);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI / 2.05;
+const standardCameraPosition = camera.position.clone();
+const standardCameraUp = camera.up.clone();
+
+function setCircuitCamera(active) {
+  if (active) {
+    camera.up.copy(standardCameraUp);
+    camera.position.set(0, 10, 1.8);
+  } else {
+    camera.up.copy(standardCameraUp);
+    camera.position.copy(standardCameraPosition);
+  }
+  controls.target.set(0, 1.2, 0);
+  camera.lookAt(controls.target);
+  controls.update();
+}
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x64748b, 2.2));
 const light = new THREE.DirectionalLight(0xffffff, 2.5);
@@ -46,33 +67,88 @@ light.position.set(4, 8, 5);
 light.castShadow = true;
 scene.add(light);
 
-const bench = new THREE.Mesh(
-  new THREE.BoxGeometry(10, 0.6, 6),
-  new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.75 })
+// Create a more realistic lab workbench
+const benchGroup = new THREE.Group();
+
+// Main tabletop
+const benchTop = new THREE.Mesh(
+  new THREE.BoxGeometry(12, 0.4, 8),
+  new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.6 })
 );
-bench.receiveShadow = true;
-scene.add(bench);
+benchTop.position.y = 1.0;
+benchTop.receiveShadow = true;
+benchTop.castShadow = true;
+benchGroup.add(benchTop);
+
+// Add wooden texture detail with slight variation
+const benchDetail = new THREE.Mesh(
+  new THREE.BoxGeometry(11.8, 0.35, 7.8),
+  new THREE.MeshStandardMaterial({ color: 0x7a6248, roughness: 0.7 })
+);
+benchDetail.position.y = 0.95;
+benchGroup.add(benchDetail);
+
+// Legs
+const legPositions = [
+  [-5.2, 0.5, -3.5],
+  [5.2, 0.5, -3.5],
+  [-5.2, 0.5, 3.5],
+  [5.2, 0.5, 3.5]
+];
+
+const legMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3728, roughness: 0.8 });
+legPositions.forEach(pos => {
+  const leg = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 1.0, 0.3),
+    legMaterial
+  );
+  leg.position.set(...pos);
+  leg.castShadow = true;
+  leg.receiveShadow = true;
+  benchGroup.add(leg);
+});
+
+// Bottom shelf
+const shelf = new THREE.Mesh(
+  new THREE.BoxGeometry(11, 0.15, 7),
+  new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.65 })
+);
+shelf.position.y = 0.4;
+shelf.receiveShadow = true;
+shelf.castShadow = true;
+benchGroup.add(shelf);
+
+scene.add(benchGroup);
 
 const wall = new THREE.Mesh(
-  new THREE.BoxGeometry(10, 5, 0.25),
+  new THREE.BoxGeometry(12, 5, 0.25),
   new THREE.MeshStandardMaterial({ color: 0xf1f5f9 })
 );
-wall.position.set(0, 2.5, -3);
+wall.position.set(0, 2.5, -4);
 wall.receiveShadow = true;
 scene.add(wall);
 
-const grid = new THREE.GridHelper(10, 20, 0x64748b, 0x94a3b8);
-grid.position.y = 0.32;
+const grid = new THREE.GridHelper(12, 24, 0x64748b, 0x94a3b8);
+grid.position.y = 0.42;
 scene.add(grid);
 
 const equipment = [];
 let selected = null;
+let selectedCircuitComponent = null;
 let flaskModel = null;
 let flaskLoadPromise = null;
+let bunsenBurnerModel = null;
+let testTubeRackModel = null;
+let tripodStandModel = null;
+let funnelModel = null;
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.45);
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.0);
 const dragPoint = new THREE.Vector3();
+const equipmentSelect = document.getElementById('equipment-select');
+const addEquipmentBtn = document.getElementById('add-equipment');
+const removeSelectedBtn = document.getElementById('remove-selected');
+const clearAllBtn = document.getElementById('clear-all');
 
 function addToEquipment(group, type) {
   group.userData.equipmentType = type;
@@ -89,16 +165,11 @@ async function loadRealFlask() {
   if (flaskModel) return flaskModel;
   if (flaskLoadPromise) return flaskLoadPromise;
 
-  flaskLoadPromise = loadModel('./models/erlenmeyer-flask.glb')
+  flaskLoadPromise = loadModel('./virtual labs/Erlenmeyer flask by Poly by Google - advGpqPqy0P.glb')
     .then(model => {
       normalizeModel(model, 1.65);
       model.userData.equipmentType = 'flask';
-      model.traverse(object => {
-        if (object.isMesh) {
-          object.castShadow = true;
-          object.receiveShadow = true;
-        }
-      });
+      setupModelShadows(model);
       flaskModel = model;
       return model;
     })
@@ -111,6 +182,135 @@ async function loadRealFlask() {
   return flaskLoadPromise;
 }
 
+
+
+async function loadBunsenBurner() {
+  if (bunsenBurnerModel) return bunsenBurnerModel;
+
+  bunsenBurnerModel = await loadModel('./virtual labs/bunsen_burner.glb')
+    .then(model => {
+      normalizeModel(model, 1.2);
+      setupModelShadows(model);
+      return model;
+    })
+    .catch(error => {
+      console.error('Could not load bunsen burner GLB:', error);
+      return null;
+    });
+
+  return bunsenBurnerModel;
+}
+
+async function loadTestTubeRack() {
+  if (testTubeRackModel) return testTubeRackModel;
+
+  testTubeRackModel = await loadModel('./virtual labs/test_tube_rack.glb')
+    .then(model => {
+      normalizeModel(model, 1.0);
+      setupModelShadows(model);
+      return model;
+    })
+    .catch(error => {
+      console.error('Could not load test tube rack GLB:', error);
+      return null;
+    });
+
+  return testTubeRackModel;
+}
+
+async function loadTripodStand() {
+  if (tripodStandModel) return tripodStandModel;
+
+  tripodStandModel = await loadModel('./virtual labs/tripod_stand.glb')
+    .then(model => {
+      normalizeModel(model, 1.1);
+      setupModelShadows(model);
+      return model;
+    })
+    .catch(error => {
+      console.error('Could not load tripod stand GLB:', error);
+      return null;
+    });
+
+  return tripodStandModel;
+}
+
+async function loadFunnel() {
+  if (funnelModel) return funnelModel;
+
+  funnelModel = await loadModel('./virtual labs/cc0_-_funnel_3.glb')
+    .then(model => {
+      normalizeModel(model, 0.5);
+      setupModelShadows(model);
+      return model;
+    })
+    .catch(error => {
+      console.error('Could not load funnel GLB:', error);
+      return null;
+    });
+
+  return funnelModel;
+}
+
+async function loadConicalFlask() {
+  if (chemistry.conicalFlaskModel) return chemistry.conicalFlaskModel;
+
+  chemistry.conicalFlaskModel = await loadModel('./virtual labs/conical_flask.glb')
+    .then(model => {
+      normalizeModel(model, 1.4);
+      groundCircuitModel(model);
+      setupModelShadows(model);
+      return model;
+    })
+    .catch(error => {
+      console.error('Could not load conical flask GLB:', error);
+      return null;
+    });
+
+  return chemistry.conicalFlaskModel;
+}
+
+async function loadCircuitModels() {
+  if (circuit.batteryModel && circuit.resistorModel && circuit.switchModel) {
+    return { battery: circuit.batteryModel, resistor: circuit.resistorModel, switch: circuit.switchModel };
+  }
+
+  const [battery, resistor, switchModel] = await Promise.all([
+    loadModel('./virtual labs/aa_battery.glb').then(m => {
+      normalizeModel(m, 0.6);
+      groundCircuitModel(m);
+      setupModelShadows(m);
+      circuit.batteryModel = m;
+      return m;
+    }).catch(() => null),
+    loadModel('./virtual labs/10k_ohm_resistor.glb').then(m => {
+      normalizeModel(m, 0.35);
+      groundCircuitModel(m);
+      setupModelShadows(m);
+      circuit.resistorModel = m;
+      return m;
+    }).catch(() => null),
+    loadModel('./virtual labs/switch.glb').then(m => {
+      normalizeModel(m, 0.35);
+      groundCircuitModel(m);
+      setupModelShadows(m);
+      circuit.switchModel = m;
+      return m;
+    }).catch(() => null)
+  ]);
+
+  return { battery, resistor, switch: switchModel };
+}
+
+function groundCircuitModel(model) {
+  const bounds = new THREE.Box3().setFromObject(model);
+  const center = bounds.getCenter(new THREE.Vector3());
+  model.position.x -= center.x;
+  model.position.y -= bounds.min.y;
+  model.position.z -= center.z;
+  return model;
+}
+
 async function addFlask() {
   const model = await loadRealFlask();
   if (!model) {
@@ -120,7 +320,7 @@ async function addFlask() {
   const flask = model.clone(true);
   addToEquipment(flask, 'flask');
   const index = equipment.length;
-  flask.position.set(-3 + (index % 3) * 2.5, 0.34, -1 + Math.floor(index / 3) * 1.7);
+  flask.position.set(-3 + (index % 3) * 2.5, 1.0, -1 + Math.floor(index / 3) * 1.7);
   scene.add(flask);
   equipment.push(flask);
 }
@@ -133,7 +333,7 @@ function makeEquipment(type) {
       new THREE.CylinderGeometry(0.65, 0.58, 1.25, 32, 1, true),
       new THREE.MeshPhysicalMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.45 })
     );
-    body.position.y = 0.95;
+    body.position.y = 0.625;
     group.add(body);
 
     const rim = new THREE.Mesh(
@@ -141,7 +341,7 @@ function makeEquipment(type) {
       new THREE.MeshStandardMaterial({ color: 0xdbeafe })
     );
     rim.rotation.x = Math.PI / 2;
-    rim.position.y = 1.58;
+    rim.position.y = 1.25;
     group.add(rim);
   }
 
@@ -150,14 +350,14 @@ function makeEquipment(type) {
       new THREE.SphereGeometry(0.7, 32, 16),
       new THREE.MeshStandardMaterial({ color: 0xc7e9ff, transparent: true, opacity: 0.55 })
     );
-    body.position.y = 0.9;
+    body.position.y = 0.35;
     group.add(body);
 
     const neck = new THREE.Mesh(
       new THREE.CylinderGeometry(0.25, 0.34, 1, 24),
       new THREE.MeshStandardMaterial({ color: 0xc7e9ff, transparent: true, opacity: 0.55 })
     );
-    neck.position.y = 1.65;
+    neck.position.y = 1.1;
     group.add(neck);
   }
 
@@ -166,7 +366,7 @@ function makeEquipment(type) {
       new THREE.CylinderGeometry(0.22, 0.22, 1.6, 24, 1, true),
       new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.55 })
     );
-    tube.position.y = 1.1;
+    tube.position.y = 0.8;
     group.add(tube);
   }
 
@@ -175,14 +375,14 @@ function makeEquipment(type) {
       new THREE.BoxGeometry(3.2, 0.08, 0.35),
       new THREE.MeshStandardMaterial({ color: 0xf4d06f })
     );
-    ruler.position.y = 0.48;
+    ruler.position.y = 0.04;
     group.add(ruler);
     for (let i = 0; i <= 16; i++) {
       const mark = new THREE.Mesh(
         new THREE.BoxGeometry(0.025, 0.12, i % 2 === 0 ? 0.22 : 0.14),
         new THREE.MeshStandardMaterial({ color: 0x1f2937 })
       );
-      mark.position.set(-1.5 + i * 0.2, 0.57, 0);
+      mark.position.set(-1.5 + i * 0.2, 0.13, 0);
       group.add(mark);
     }
   }
@@ -190,10 +390,45 @@ function makeEquipment(type) {
   return addToEquipment(group, type);
 }
 
+async function addRealEquipment(type) {
+  let model = null;
+
+  if (type === 'bunsen-burner') {
+    model = await loadBunsenBurner();
+  } else if (type === 'test-tube-rack') {
+    model = await loadTestTubeRack();
+  } else if (type === 'tripod-stand') {
+    model = await loadTripodStand();
+  } else if (type === 'funnel') {
+    model = await loadFunnel();
+  }
+
+  if (model) {
+    const equipmentModel = cloneModel(model);
+    addToEquipment(equipmentModel, type);
+    const index = equipment.length;
+    let yPos = 1.0;
+    if (type === 'tripod-stand') yPos = 0.5;
+    if (type === 'test-tube-rack') yPos = 0.5;
+    if (type === 'funnel') yPos = 1.2;
+    equipmentModel.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
+    scene.add(equipmentModel);
+    equipment.push(equipmentModel);
+  } else {
+    // Fallback to abstract equipment
+    addEquipment(type);
+  }
+}
+
 function addEquipment(type) {
   const object = makeEquipment(type);
   const index = equipment.length;
-  object.position.set(-3 + (index % 3) * 2.5, 0, -1 + Math.floor(index / 3) * 1.7);
+  let yPos = 1.2;
+  if (type === 'beaker') yPos = 1.0;
+  if (type === 'flask') yPos = 1.0;
+  if (type === 'test-tube') yPos = 1.0;
+  if (type === 'ruler') yPos = 1.0;
+  object.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
   scene.add(object);
   equipment.push(object);
 }
@@ -219,8 +454,8 @@ function makeSpringCurve(length) {
   const points = [];
   const turns = 18;
   const radius = 0.23;
-  const topY = 3.93;
-  const anchorX = 1.05;
+  const topY = 4.55;
+  const anchorX = 2.1;
   for (let i = 0; i <= turns * 12; i++) {
     const t = i / (turns * 12);
     const angle = t * Math.PI * 2 * turns;
@@ -240,6 +475,7 @@ function createSpring(length = hooke.naturalLength) {
 function createMass() {
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.28, 32), new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.55, roughness: 0.35 }));
+  body.position.y = 0;
   body.castShadow = true;
   group.add(body);
   const hook = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.035, 10, 24), new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.25 }));
@@ -264,9 +500,10 @@ function createHookeSupport() {
   hanger.position.set(1.05, 3.95, 0);
   group.add(hanger);
   const base = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 1.1), new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.5, roughness: 0.4 }));
-  base.position.set(0, 0.4, 0);
+  base.position.set(0, 0.6, 0);
   group.add(base);
   group.userData.isHookeObject = true;
+  group.position.set(1.05, 0.6, 0);
   return group;
 }
 
@@ -305,8 +542,8 @@ function getHookeMeasurements() {
 
 function createHookePhysicsSystem() {
   const anchorPosition = {
-    x: 1.05,
-    y: 3.93,
+    x: 2.1,
+    y: 4.55,
     z: 0
   };
 
@@ -445,7 +682,7 @@ function updateHookeUI() {
 function createPendingMass() {
   if (hooke.pendingMass || hooke.massCount >= 5) return;
   const mass = createMass();
-  mass.position.set(-2.1, 0.72, 0);
+  mass.position.set(-2.1, 1.15, 0);
   scene.add(mass);
   hooke.pendingMass = mass;
   updateHookeUI();
@@ -513,15 +750,29 @@ function showHookeControls() {
     <div class="equation"><span>F = kx</span><small>Spring constant k = ${hooke.springConstant.toFixed(1)} N/m</small></div>
     <div class="physics-status" id="physics-status"><strong>Physics:</strong> ready — attach a mass to activate the spring simulation.</div>
     <button id="reset-hooke" class="control-button reset-experiment">Reset experiment</button>`;
-  document.querySelector('#add-mass').addEventListener('click', createPendingMass);
-  document.querySelector('#remove-mass').addEventListener('click', removeMass);
-  document.querySelector('#reset-hooke').addEventListener('click', resetHooke);
+
+  setTimeout(() => {
+    const addMassBtn = document.querySelector('#add-mass');
+    const removeMassBtn = document.querySelector('#remove-mass');
+    const resetHookeBtn = document.querySelector('#reset-hooke');
+
+    if (addMassBtn) {
+      addMassBtn.addEventListener('click', createPendingMass);
+      console.log('Add mass button listener attached');
+    } else {
+      console.log('Add mass button not found');
+    }
+    if (removeMassBtn) removeMassBtn.addEventListener('click', removeMass);
+    if (resetHookeBtn) resetHookeBtn.addEventListener('click', resetHooke);
+  }, 10);
+
   updateHookeUI();
 }
 
-function activateHooke() {
+async function activateHooke() {
+  setCircuitCamera(false);
   hooke.active = true;
-  setupHooke();
+  await setupHooke();
   instructions.innerHTML = `<h2>Hooke's Law</h2><p>Investigate how the extension of a spring changes when a load is added.</p><p class="model-note"><strong>3D model evidence:</strong> the Flask tool uses a real GLB asset with attribution documented below.</p><ol><li>Click <strong>Get 100 g mass</strong>.</li><li>Drag the mass from the bench to the spring hanging from the arm.</li><li>Drop it near the spring to attach it.</li><li>Add more masses and compare force with extension.</li></ol>`;
   showHookeControls();
 }
@@ -533,23 +784,29 @@ const chemistry = {
   liquid: null,
   liquidTargetColor: new THREE.Color(0x78d7ff),
   beaker: null,
-  reagent: null,
+  beakerModel: null,
+  conicalFlaskModel: null,
+  acidBottle: null,
+  baseBottle: null,
   bubbles: [],
   precipitate: [],
   droplets: [],
   stirPhase: 0,
-  volume: 0.65,
+  volume: 0,
+  acidRemaining: 0.3,
+  baseRemaining: 0.3,
   acid: 0,
   base: 0,
-  soluteA: 0,
-  soluteB: 0,
+  ph: 7,
   temperature: 25,
-  message: 'Ready for a new observation.'
+  message: 'Drag the acid or base bottle over the flask to pour.'
 };
+const chemistryStockConcentration = 0.1;
 
 function clearChemistry() {
   if (chemistry.beaker) scene.remove(chemistry.beaker);
-  if (chemistry.reagent) scene.remove(chemistry.reagent);
+  if (chemistry.acidBottle) scene.remove(chemistry.acidBottle);
+  if (chemistry.baseBottle) scene.remove(chemistry.baseBottle);
   chemistry.bubbles.forEach(b => scene.remove(b));
   chemistry.precipitate.forEach(p => scene.remove(p));
   chemistry.droplets.forEach(d => scene.remove(d));
@@ -558,10 +815,46 @@ function clearChemistry() {
   chemistry.droplets = [];
   chemistry.liquid = null;
   chemistry.beaker = null;
-  chemistry.reagent = null;
+  chemistry.acidBottle = null;
+  chemistry.baseBottle = null;
 }
 
-function createChemBeaker() {
+async function createChemBeaker() {
+  const model = await loadConicalFlask();
+  if (model) {
+    const flask = new THREE.Group();
+    const visual = cloneModel(model);
+    visual.traverse(object => {
+      if (!object.isMesh) return;
+      const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      const glassMaterials = sourceMaterials.map(material => {
+        const glass = material.clone();
+        glass.transparent = true;
+        glass.opacity = 0.28;
+        glass.depthWrite = false;
+        glass.side = THREE.DoubleSide;
+        return glass;
+      });
+      object.material = Array.isArray(object.material) ? glassMaterials : glassMaterials[0];
+    });
+    flask.add(visual);
+    flask.position.set(0, 1.2, 0);
+    flask.userData.isChemFlask = true;
+    flask.userData.flaskTopY = new THREE.Box3().setFromObject(visual).max.y;
+
+    const liquid = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.24, 0.3, 0.3, 32),
+      new THREE.MeshPhysicalMaterial({ color: chemistry.liquidTargetColor, transparent: true, opacity: 0.68, roughness: 0.18, depthWrite: false })
+    );
+    liquid.position.y = 0.45;
+    liquid.renderOrder = 1;
+    flask.add(liquid);
+    chemistry.liquid = liquid;
+
+    return flask;
+  }
+
+  // Fallback to abstract model
   const group = new THREE.Group();
   const glass = new THREE.Mesh(
     new THREE.CylinderGeometry(0.95, 0.82, 1.65, 48, 1, true),
@@ -574,13 +867,91 @@ function createChemBeaker() {
   rim.position.y = 1.95;
   group.add(rim);
   const liquid = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.82, 0.72, 0.72, 48),
-    new THREE.MeshPhysicalMaterial({ color: chemistry.liquidTargetColor, transparent: true, opacity: 0.82, roughness: 0.12 })
+    new THREE.CylinderGeometry(0.24, 0.3, 0.3, 32),
+    new THREE.MeshPhysicalMaterial({ color: chemistry.liquidTargetColor, transparent: true, opacity: 0.68, roughness: 0.18, depthWrite: false })
   );
-  liquid.position.y = 0.82;
   group.add(liquid);
+  liquid.renderOrder = 1;
+  groundCircuitModel(group);
+  const flask = new THREE.Group();
+  flask.position.set(0, 1.2, 0);
+  flask.userData.isChemFlask = true;
+  flask.userData.flaskTopY = new THREE.Box3().setFromObject(group).max.y;
+  flask.add(group);
+  liquid.position.y = 0.45;
   chemistry.liquid = liquid;
-  group.position.set(0, 0.35, 0);
+  return flask;
+}
+
+function createAcidBottle() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
+    new THREE.MeshStandardMaterial({ color: 0xf05a67, roughness: 0.4 })
+  );
+  body.position.y = 0.9;
+  group.add(body);
+
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
+    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
+  );
+  neck.position.y = 1.4;
+  group.add(neck);
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
+  );
+  cap.position.y = 1.55;
+  group.add(cap);
+
+  const label = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.15, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xffffff })
+  );
+  label.position.set(0, 0.9, 0.27);
+  group.add(label);
+
+  group.userData.isAcidBottle = true;
+  group.position.set(-2.5, 0.7, 0);
+  setupModelShadows(group);
+  return group;
+}
+
+function createBaseBottle() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
+    new THREE.MeshStandardMaterial({ color: 0x7b61ff, roughness: 0.4 })
+  );
+  body.position.y = 0.9;
+  group.add(body);
+
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
+    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
+  );
+  neck.position.y = 1.4;
+  group.add(neck);
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
+  );
+  cap.position.y = 1.55;
+  group.add(cap);
+
+  const label = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.15, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xffffff })
+  );
+  label.position.set(0, 0.9, 0.27);
+  group.add(label);
+
+  group.userData.isBaseBottle = true;
+  group.position.set(2.5, 0.7, 0);
+  setupModelShadows(group);
   return group;
 }
 
@@ -606,13 +977,23 @@ function addChemDroplet(color) {
   drop.position.set(2.35, 2.05, 0.55);
   drop.userData.life = 0;
   drop.userData.color = color;
+  drop.userData.targetY = 0.85;
   scene.add(drop);
   chemistry.droplets.push(drop);
 }
 
+function updateChemistryLiquid(color, height = 0.3) {
+  if (!chemistry.liquid) return;
+  chemistry.liquidTargetColor.set(color);
+  chemistry.liquid.material.color.lerp(chemistry.liquidTargetColor, 0.15);
+  chemistry.liquid.visible = height > 0;
+  chemistry.liquid.scale.y = height > 0 ? height / 0.3 : 0.001;
+  chemistry.liquid.position.y = 0.05 + height / 2;
+}
+
 function spawnBubble() {
   const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.035 + Math.random() * 0.045, 12, 8), new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.42, roughness: 0, transmission: 0.2 }));
-  bubble.position.set((Math.random() - 0.5) * 1.25, 0.7 + Math.random() * 0.2, (Math.random() - 0.5) * 1.25);
+  bubble.position.set((Math.random() - 0.5) * 0.8, 0.7 + Math.random() * 0.2, (Math.random() - 0.5) * 0.8);
   bubble.userData.speed = 0.35 + Math.random() * 0.55;
   bubble.userData.life = 0;
   scene.add(bubble);
@@ -621,7 +1002,7 @@ function spawnBubble() {
 
 function spawnPrecipitate() {
   const particle = new THREE.Mesh(new THREE.SphereGeometry(0.025 + Math.random() * 0.04, 10, 8), new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.8 }));
-  particle.position.set((Math.random() - 0.5) * 1.3, 0.52 + Math.random() * 0.9, (Math.random() - 0.5) * 1.3);
+  particle.position.set((Math.random() - 0.5) * 0.7, 0.52 + Math.random() * 0.6, (Math.random() - 0.5) * 0.7);
   particle.userData.sink = 0.08 + Math.random() * 0.16;
   scene.add(particle);
   chemistry.precipitate.push(particle);
@@ -636,61 +1017,53 @@ function setChemistryLiquid(color, height = 0.72) {
 }
 
 function chemistryState() {
-  if (chemistry.mode === 'indicator') {
-    const net = chemistry.base - chemistry.acid;
-    const pH = THREE.MathUtils.clamp(7 + net * 1.7, 1, 13);
-    let color = 0xf3f1a7;
-    let label = 'Near neutral';
-    if (pH < 4) { color = 0xf05a67; label = 'Acidic'; }
-    else if (pH < 6.5) { color = 0xff9f43; label = 'Weakly acidic'; }
-    else if (pH > 10) { color = 0x7b61ff; label = 'Basic'; }
-    else if (pH > 7.5) { color = 0x4fd1c5; label = 'Weakly basic'; }
-    return { pH, color, label };
+  if (chemistry.volume <= 0) {
+    return { ph: null, color: 0xcfefff, label: 'Empty', concentration: null, concentrationLabel: 'No solution' };
   }
-  if (chemistry.mode === 'bubbles') {
-    const reacted = Math.min(chemistry.acid, chemistry.base);
-    return { reacted, color: 0x9bdcff, label: reacted > 0 ? 'Carbon dioxide is being simulated' : 'Ready to add acid' };
-  }
-  return { reacted: Math.min(chemistry.soluteA, chemistry.soluteB), color: 0xd9e7ff, label: chemistry.precipitate.length ? 'Solid precipitate is forming' : 'Clear solution' };
+  const net = chemistry.base - chemistry.acid;
+  const totalReagent = chemistry.acid + chemistry.base;
+  const concentration = chemistryStockConcentration * Math.abs(net) / totalReagent;
+  if (net < 0) chemistry.ph = THREE.MathUtils.clamp(-Math.log10(concentration), 1, 7);
+  else if (net > 0) chemistry.ph = THREE.MathUtils.clamp(14 + Math.log10(concentration), 7, 13);
+  else chemistry.ph = 7;
+  const concentrationLabel = net < 0
+    ? `${concentration.toFixed(2)} M acid`
+    : net > 0
+      ? `${concentration.toFixed(2)} M base`
+      : '0.00 M (neutral mix)';
+  let color = 0xf3f1a7;
+  let label = 'Neutral';
+  if (chemistry.ph < 4) { color = 0xf05a67; label = 'Acidic'; }
+  else if (chemistry.ph < 6.5) { color = 0xff9f43; label = 'Acidic'; }
+  else if (chemistry.ph > 10) { color = 0x7b61ff; label = 'Basic'; }
+  else if (chemistry.ph > 7.5) { color = 0x4fd1c5; label = 'Basic'; }
+  return { ph: chemistry.ph, color, label, concentration, concentrationLabel };
 }
 
-function applyChemistryAction(action) {
-  if (chemistry.mode === 'indicator') {
-    if (action === 'acid') chemistry.acid += 0.65;
-    if (action === 'base') chemistry.base += 0.65;
-    chemistry.volume = Math.min(1.2, chemistry.volume + 0.08);
-    addChemDroplet(action === 'acid' ? 0xf05a67 : 0x7b61ff);
+function applyChemistryAction(type) {
+  const remainingKey = type === 'acid' ? 'acidRemaining' : 'baseRemaining';
+  if (chemistry[remainingKey] <= 0) {
+    chemistry.message = `The ${type} bottle is empty.`;
+    updateChemistryUI();
+    return;
+  }
+  if (chemistry.volume >= 0.6) {
+    chemistry.message = 'The flask is full. Reset to start a new experiment.';
+    updateChemistryUI();
+    return;
+  }
+  chemistry[remainingKey] = Math.max(0, Math.round((chemistry[remainingKey] - 0.05) * 100) / 100);
+  chemistry.volume = Math.min(0.6, chemistry.volume + 0.05);
+  if (type === 'acid') {
+    chemistry.acid += 0.3;
     const state = chemistryState();
-    setChemistryLiquid(state.color, chemistry.volume);
-    chemistry.message = `Indicator observation: ${state.label.toLowerCase()}.`;
-  } else if (chemistry.mode === 'bubbles') {
-    if (action === 'acid') {
-      chemistry.acid += 1;
-      chemistry.volume = Math.min(1.2, chemistry.volume + 0.06);
-      for (let i = 0; i < 10; i++) spawnBubble();
-      addChemDroplet(0xf05a67);
-      chemistry.message = 'Acid added to carbonate: visible gas bubbles are simulated.';
-    } else if (action === 'carbonate') {
-      chemistry.base += 1;
-      chemistry.volume = Math.min(1.2, chemistry.volume + 0.06);
-      for (let i = 0; i < 8; i++) spawnBubble();
-      addChemDroplet(0xd5d0a8);
-      chemistry.message = 'Carbonate added: watch the gas bubbles rise.';
-    }
-    setChemistryLiquid(0x9bdcff, chemistry.volume);
-  } else {
-    if (action === 'saltA') chemistry.soluteA += 1;
-    if (action === 'saltB') chemistry.soluteB += 1;
-    chemistry.volume = Math.min(1.2, chemistry.volume + 0.06);
-    addChemDroplet(action === 'saltA' ? 0x4f86c6 : 0xe8c96a);
-    if (chemistry.soluteA > 0 && chemistry.soluteB > 0) {
-      for (let i = 0; i < 5; i++) spawnPrecipitate();
-      setChemistryLiquid(0xd9e7ff, chemistry.volume);
-      chemistry.message = 'Two clear solutions have been mixed; a solid precipitate is simulated.';
-    } else {
-      setChemistryLiquid(0xcfefff, chemistry.volume);
-      chemistry.message = 'Add the second solution to observe the visible change.';
-    }
+    updateChemistryLiquid(state.color, chemistry.volume);
+    chemistry.message = `Acid added. ${state.label}; ${state.concentrationLabel}.`;
+  } else if (type === 'base') {
+    chemistry.base += 0.3;
+    const state = chemistryState();
+    updateChemistryLiquid(state.color, chemistry.volume);
+    chemistry.message = `Base added. ${state.label}; ${state.concentrationLabel}.`;
   }
   updateChemistryUI();
 }
@@ -698,85 +1071,101 @@ function applyChemistryAction(action) {
 function resetChemistry() {
   chemistry.acid = 0;
   chemistry.base = 0;
-  chemistry.soluteA = 0;
-  chemistry.soluteB = 0;
+  chemistry.ph = 7;
   chemistry.temperature = 25;
-  chemistry.volume = 0.65;
-  chemistry.message = 'Ready for a new observation.';
+  chemistry.volume = 0;
+  chemistry.acidRemaining = 0.3;
+  chemistry.baseRemaining = 0.3;
+  chemistry.message = 'The flask is empty. Add acid or base to begin.';
   chemistry.bubbles.forEach(b => scene.remove(b));
   chemistry.precipitate.forEach(p => scene.remove(p));
   chemistry.droplets.forEach(d => scene.remove(d));
   chemistry.bubbles = [];
   chemistry.precipitate = [];
   chemistry.droplets = [];
-  setChemistryLiquid(chemistry.mode === 'indicator' ? 0x78d7ff : 0xcfefff, 0.65);
+  updateChemistryLiquid(chemistryState().color, chemistry.volume);
   updateChemistryUI();
 }
 
 function updateChemistryUI() {
   const state = chemistryState();
-  const status = document.querySelector('#chem-status');
-  const metric = document.querySelector('#chem-metric');
+  const phValue = document.querySelector('#chem-ph');
+  const phState = document.querySelector('#chem-state');
+  const volumeValue = document.querySelector('#chem-volume');
+  const phMarker = document.querySelector('#chem-ph-marker');
+  const concentrationValue = document.querySelector('#chem-concentration');
   const observation = document.querySelector('#chem-observation');
-  if (status) status.textContent = state.label;
-  if (observation) observation.textContent = chemistry.message;
-  if (metric) {
-    if (chemistry.mode === 'indicator') metric.textContent = `pH ${state.pH.toFixed(1)}`;
-    if (chemistry.mode === 'bubbles') metric.textContent = `${chemistry.bubbles.length} visible bubbles`;
-    if (chemistry.mode === 'precipitate') metric.textContent = `${chemistry.precipitate.length} solid particles`;
+  const acidRemaining = document.querySelector('#chem-acid-remaining');
+  const baseRemaining = document.querySelector('#chem-base-remaining');
+  if (phValue) phValue.textContent = state.ph === null ? 'pH --' : `pH ${state.ph.toFixed(1)}`;
+  if (phState) phState.textContent = state.label;
+  if (volumeValue) volumeValue.textContent = `${Math.round(chemistry.volume * 100)} mL`;
+  if (concentrationValue) concentrationValue.textContent = state.concentrationLabel;
+  if (phMarker) {
+    phMarker.hidden = state.ph === null;
+    if (state.ph !== null) phMarker.style.left = `${((state.ph - 1) / 12) * 100}%`;
   }
+  if (acidRemaining) acidRemaining.textContent = `${Math.round(chemistry.acidRemaining * 100)} mL left`;
+  if (baseRemaining) baseRemaining.textContent = `${Math.round(chemistry.baseRemaining * 100)} mL left`;
+  if (observation) observation.textContent = chemistry.message;
 }
 
 function showChemistryControls() {
-  const buttonText = chemistry.mode === 'indicator'
-    ? ['Add acid', 'Add base']
-    : chemistry.mode === 'bubbles'
-      ? ['Add acid', 'Add carbonate']
-      : ['Add solution A', 'Add solution B'];
-
   experimentControls.innerHTML = `
-    <div class="control-title">Acid / Base visual reactions</div>
-    <div class="chem-tabs">
-      <button class="chem-tab ${chemistry.mode === 'indicator' ? 'active' : ''}" data-chem-mode="indicator">Color change</button>
-      <button class="chem-tab ${chemistry.mode === 'bubbles' ? 'active' : ''}" data-chem-mode="bubbles">Bubbles</button>
-      <button class="chem-tab ${chemistry.mode === 'precipitate' ? 'active' : ''}" data-chem-mode="precipitate">Precipitate</button>
+    <div class="control-title">Add a small amount</div>
+    <div class="chemistry-dose-controls">
+      <button id="add-acid" class="control-button acid-dose"><span>Add Acid</span><small id="chem-acid-remaining">30 mL left</small></button>
+      <button id="add-base" class="control-button base-dose"><span>Add Base</span><small id="chem-base-remaining">30 mL left</small></button>
     </div>
-    <div class="control-row"><button id="chem-action-a" class="control-button primary">${buttonText[0]}</button><button id="chem-action-b" class="control-button">${buttonText[1]}</button></div>
-    <div class="measurement-grid"><div><span>Status</span><strong id="chem-status">Ready</strong></div><div><span>Observation</span><strong id="chem-metric">pH 7.0</strong></div></div>
-    <div class="drag-status" id="chem-observation">Ready for a new observation.</div>
+    <div class="measurement-grid"><div><span>pH</span><strong id="chem-ph">pH --</strong><small id="chem-state">Empty</small></div><div><span>Solution</span><strong id="chem-volume">0 mL</strong></div></div>
+    <div class="chem-mixture-reading"><span>Leftover acid/base</span><strong id="chem-concentration">No solution</strong></div>
+    <div class="ph-scale" aria-label="pH scale from acidic to basic"><div class="ph-scale-bar"><span id="chem-ph-marker"></span></div><div class="ph-scale-labels"><span>Acidic</span><span>7 is neutral</span><span>Basic</span></div></div>
+    <div class="drag-status" id="chem-observation">The flask is empty. Add acid or base to begin.</div>
+    <div class="model-note">Acid lowers pH. Base raises pH. Try adding one of each.</div>
     <button id="reset-chem" class="control-button reset-experiment">Reset experiment</button>`;
 
-  document.querySelectorAll('[data-chem-mode]').forEach(button => button.addEventListener('click', () => {
-    chemistry.mode = button.dataset.chemMode;
-    setupChemistry();
-  }));
-  document.querySelector('#chem-action-a').addEventListener('click', () => applyChemistryAction(chemistry.mode === 'indicator' || chemistry.mode === 'bubbles' ? 'acid' : 'saltA'));
-  document.querySelector('#chem-action-b').addEventListener('click', () => applyChemistryAction(chemistry.mode === 'indicator' ? 'base' : chemistry.mode === 'bubbles' ? 'carbonate' : 'saltB'));
+  document.querySelector('#add-acid').addEventListener('click', () => applyChemistryAction('acid'));
+  document.querySelector('#add-base').addEventListener('click', () => applyChemistryAction('base'));
   document.querySelector('#reset-chem').addEventListener('click', resetChemistry);
   updateChemistryUI();
 }
 
-function setupChemistry() {
+async function setupChemistry() {
   clearChemistry();
   chemistry.active = true;
-  chemistry.beaker = createChemBeaker();
+  chemistry.beaker = await createChemBeaker();
   scene.add(chemistry.beaker);
-  const reagentColor = chemistry.mode === 'indicator' ? 0x64748b : chemistry.mode === 'bubbles' ? 0xd5d0a8 : 0x4f86c6;
-  chemistry.reagent = createReagentBottle('reagent', reagentColor);
-  scene.add(chemistry.reagent);
+  chemistry.acidBottle = createAcidBottle();
+  scene.add(chemistry.acidBottle);
+  chemistry.baseBottle = createBaseBottle();
+  scene.add(chemistry.baseBottle);
   resetChemistry();
   showChemistryControls();
 }
 
-function activateChemistry() {
+async function activateChemistry() {
+  setCircuitCamera(false);
   clearHooke();
-  chemistry.mode = 'indicator';
-  setupChemistry();
-  instructions.innerHTML = `<h2>Acid / Base: visible reactions</h2><p>This milestone demonstrates three different observable chemistry changes using a simple simulation.</p><ol><li><strong>Color:</strong> add acid or base and watch the indicator respond to pH.</li><li><strong>Bubbles:</strong> add acid and carbonate and observe simulated gas bubbles rising.</li><li><strong>Precipitate:</strong> mix two clear solutions and observe simulated solid particles forming.</li></ol><p class="model-note"><strong>Research note:</strong> these are visual educational simulations; the displayed effects are driven by experiment state rather than a full chemical solver.</p>`;
+  await setupChemistry();
+  instructions.innerHTML = `<h2>Acid + Base</h2><p>See how two liquids change a solution.</p><ol><li>The flask starts empty. Choose <strong>Add Acid</strong> or <strong>Add Base</strong> to add 5 mL.</li><li>Acid makes pH go down. Base makes pH go up.</li><li>There is 30 mL of each liquid. Empty both bottles to fill the 60 mL flask.</li><li>pH 7 is neutral. Add the other liquid and watch pH move back toward 7.</li></ol><p class="model-note">Both stocks are 0.10 M. Adding more of the same keeps concentration steady; mixing acid and base changes the leftover concentration.</p>`;
 }
 
 
 // ---------------- Simple Circuit experiment ----------------
+const circuitTerminalGeometry = new THREE.SphereGeometry(0.085, 12, 8);
+const circuitTerminalHitGeometry = new THREE.SphereGeometry(0.18, 12, 8);
+const circuitTerminalMaterial = new THREE.MeshStandardMaterial({ color: 0xc4d0d7, metalness: 0.72, roughness: 0.26 });
+const circuitPositiveTerminalMaterial = new THREE.MeshStandardMaterial({ color: 0xe64b43, metalness: 0.38, roughness: 0.34 });
+const circuitNegativeTerminalMaterial = new THREE.MeshStandardMaterial({ color: 0x25323c, metalness: 0.68, roughness: 0.3 });
+const circuitHitTargetGeometry = new THREE.SphereGeometry(0.58, 12, 8);
+const circuitHitTargetMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, opacity: 0 });
+const circuitLayout = {
+  battery: [-1.7, 0],
+  resistor: [0, -1.55],
+  bulb: [1.7, 0],
+  switch: [0, 1.55]
+};
+const circuitOrder = ['battery', 'resistor', 'bulb', 'switch'];
 const circuit = {
   active: false,
   components: [],
@@ -788,17 +1177,34 @@ const circuit = {
   connected: false,
   bulbGlow: 0,
   electrons: [],
-  message: 'Place the components on their matching pads.'
+  message: 'Select components from the palette and place them on the bench.',
+  batteryModel: null,
+  resistorModel: null,
+  switchModel: null,
+  bulbModel: null,
+  connectionMode: false,
+  connectionStart: null,
+  tempWire: null,
+  shortCircuited: false,
+  fireEffect: null,
+  overloadConnected: false,
+  overloadTime: 0,
+  bulbBlown: false,
+  burnoutEffect: null,
+  burnoutTime: 0
 };
 
 function clearCircuit() {
   circuit.components.forEach(c => scene.remove(c.group));
   circuit.wires.forEach(w => {
-    scene.remove(w.line);
-    if (w.geometry) w.geometry.dispose();
-    if (w.material) w.material.dispose();
+    scene.remove(w.mesh);
+    w.mesh.geometry.dispose();
+    w.mesh.material.dispose();
   });
-  circuit.electrons.forEach(e => scene.remove(e));
+  removeTempWire();
+  removeShortCircuitEffect();
+  removeBulbBurnoutEffect();
+  removeCircuitElectrons();
   circuit.components = [];
   circuit.wires = [];
   circuit.electrons = [];
@@ -806,9 +1212,44 @@ function clearCircuit() {
   circuit.switchClosed = false;
   circuit.connected = false;
   circuit.bulbGlow = 0;
+  circuit.connectionMode = false;
+  circuit.connectionStart = null;
+  circuit.shortCircuited = false;
+  circuit.overloadConnected = false;
+  circuit.overloadTime = 0;
+  circuit.bulbBlown = false;
+  circuit.burnoutTime = 0;
+  selectedCircuitComponent = null;
+  controls.enabled = true;
 }
 
-function makeCircuitComponent(type, label) {
+async function makeCircuitComponent(type, label) {
+  const models = await loadCircuitModels();
+  const makeModelRoot = model => {
+    const root = new THREE.Group();
+    root.userData.isCircuitComponent = true;
+    root.userData.circuitType = type;
+    root.userData.label = label;
+    root.rotation.y = getCircuitDefaultRotation(type);
+    root.add(preorientCircuitModel(cloneModel(model), type));
+    addCircuitTerminals(root, type);
+    addCircuitHitTarget(root, type);
+    return root;
+  };
+
+  if (type === 'battery' && models.battery) {
+    return makeModelRoot(models.battery);
+  }
+
+  if (type === 'resistor' && models.resistor) {
+    return makeModelRoot(models.resistor);
+  }
+
+  if (type === 'switch' && models.switch) {
+    return makeModelRoot(models.switch);
+  }
+
+  // Fallback to abstract models
   const group = new THREE.Group();
   group.userData.isCircuitComponent = true;
   group.userData.circuitType = type;
@@ -816,13 +1257,15 @@ function makeCircuitComponent(type, label) {
   const bodyMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.35, roughness: 0.4 });
 
   if (type === 'battery') {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.55, 0.7), bodyMat);
-    body.position.y = 0.62;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.45, 1.05), bodyMat);
+    body.position.y = 0.24;
     group.add(body);
     const positive = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.18,16), new THREE.MeshStandardMaterial({color:0xef4444, metalness:0.5}));
-    positive.position.set(0.22,0.98,0); group.add(positive);
+    positive.rotation.x = Math.PI / 2;
+    positive.position.set(0,0.24,-0.6); group.add(positive);
     const negative = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.18,16), new THREE.MeshStandardMaterial({color:0x111827, metalness:0.5}));
-    negative.position.set(-0.22,0.98,0); group.add(negative);
+    negative.rotation.x = Math.PI / 2;
+    negative.position.set(0,0.24,0.6); group.add(negative);
   }
   if (type === 'resistor') {
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.75,24), new THREE.MeshStandardMaterial({color:0xd6b07a, roughness:0.6}));
@@ -843,115 +1286,624 @@ function makeCircuitComponent(type, label) {
     glass.position.y=1.0; group.add(glass); group.userData.glass=glass;
   }
   group.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
-  return group;
+  groundCircuitModel(group);
+  const root = new THREE.Group();
+  root.userData.isCircuitComponent = true;
+  root.userData.circuitType = type;
+  root.userData.label = label;
+  root.userData.glass = group.userData.glass;
+  root.userData.lever = group.userData.lever;
+  root.rotation.y = getCircuitDefaultRotation(type);
+  root.add(group);
+  addCircuitTerminals(root, type);
+  addCircuitHitTarget(root, type);
+  return root;
 }
 
-function addCircuitComponent(type, target) {
-  const group=makeCircuitComponent(type,type);
+async function addCircuitComponent(type, target) {
+  const group=await makeCircuitComponent(type,type);
   group.position.copy(target);
+  group.position.y = 1.2;
   scene.add(group);
   const item={type,group,target:target.clone(),placed:true};
   circuit.components.push(item);
   return item;
 }
 
-function circuitTargets() {
-  return {
-    battery:new THREE.Vector3(-2.3,0,-0.9),
-    resistor:new THREE.Vector3(0,0,-0.9),
-    switch:new THREE.Vector3(2.3,0,-0.9),
-    bulb:new THREE.Vector3(0,0,1.45)
-  };
+async function addCircuitComponentFromPalette(type) {
+  const group=await makeCircuitComponent(type,type);
+  const layout = circuitLayout;
+  const duplicateIndex = circuit.components.filter(component => component.type === type).length;
+  const [x, z] = layout[type] ?? [0, 0];
+  group.position.set(x + duplicateIndex * 0.65, 1.2, z + duplicateIndex * 0.65);
+  scene.add(group);
+  const item={type,group,placed:true};
+  circuit.components.push(item);
+  circuit.message = `Added ${type}. Select Add Wire to connect components by hand.`;
+  updateCircuitUI();
 }
 
 function setupCircuit() {
   clearCircuit();
   circuit.active=true;
-  const t=circuitTargets();
-  addCircuitComponent('battery',t.battery);
-  addCircuitComponent('resistor',t.resistor);
-  addCircuitComponent('switch',t.switch);
-  addCircuitComponent('bulb',t.bulb);
-  buildCircuitWires();
   updateCircuitUI();
 }
 
 function circuitComponent(name) { return circuit.components.find(c=>c.type===name); }
 
-function wireBetween(a,b) {
-  const points=[a.clone().add(new THREE.Vector3(0,0.72,0)),b.clone().add(new THREE.Vector3(0,0.72,0))];
-  const geometry=new THREE.BufferGeometry().setFromPoints(points);
-  const material=new THREE.LineBasicMaterial({color:0x334155,linewidth:3});
-  const line=new THREE.Line(geometry,material); scene.add(line);
-  return {line,geometry,material,a,b};
+function getCircuitDefaultRotation(type) {
+  const index = circuitOrder.indexOf(type);
+  if (index < 0) return 0;
+  const previousType = circuitOrder[(index + circuitOrder.length - 1) % circuitOrder.length];
+  const nextType = circuitOrder[(index + 1) % circuitOrder.length];
+  const previous = circuitLayout[previousType];
+  const next = circuitLayout[nextType];
+  const axisX = type === 'battery' ? previous[0] - next[0] : next[0] - previous[0];
+  const axisZ = type === 'battery' ? previous[1] - next[1] : next[1] - previous[1];
+
+  return type === 'battery' ? Math.atan2(axisX, axisZ) : Math.atan2(-axisZ, axisX);
 }
 
-function buildCircuitWires() {
-  circuit.wires.forEach(w=>{scene.remove(w.line);w.geometry.dispose();w.material.dispose();});
-  circuit.wires=[];
-  const b=circuitComponent('battery')?.group.position;
-  const r=circuitComponent('resistor')?.group.position;
-  const sw=circuitComponent('switch')?.group.position;
-  const bulb=circuitComponent('bulb')?.group.position;
-  if(!b||!r||!sw||!bulb) return;
-  circuit.wires.push(wireBetween(b,r),wireBetween(r,sw),wireBetween(sw,bulb),wireBetween(b,bulb));
+function removeCircuitElectrons() {
+  circuit.electrons.forEach(electron => {
+    scene.remove(electron);
+    electron.geometry.dispose();
+    electron.material.dispose();
+  });
+  circuit.electrons = [];
 }
 
-function allCircuitComponentsPlaced() {
-  return circuit.components.length===4 && circuit.components.every(c=>c.group.position.distanceTo(c.target)<0.35);
+function addCircuitHitTarget(root, type) {
+  const radius = 0.58;
+  const target = new THREE.Mesh(circuitHitTargetGeometry, circuitHitTargetMaterial);
+  target.position.y = radius;
+  target.userData.isCircuitHitTarget = true;
+  root.add(target);
 }
 
-function toggleCircuitSwitch() {
-  if(!circuit.connected){circuit.message='Place all four components on their matching pads first.'; updateCircuitUI(); return;}
-  circuit.switchClosed=!circuit.switchClosed;
-  circuit.message=circuit.switchClosed?'Switch closed: current is flowing.':'Switch open: current stopped.';
-  const sw=circuitComponent('switch');
-  if(sw?.group.userData.lever) sw.group.userData.lever.rotation.z=circuit.switchClosed?-0.35:0.35;
+function addCircuitTerminals(root, type) {
+  const terminalPositions = {
+    battery: [[0, 0.08, -0.3], [0, 0.08, 0.3]],
+    resistor: [[-0.22, 0.12, 0], [0.22, 0.12, 0]],
+    switch: [[-0.25, 0.12, 0], [0.25, 0.12, 0]],
+    bulb: [[-0.48, 0.1, 0], [0.48, 0.1, 0]]
+  };
+  root.userData.circuitTerminals = (terminalPositions[type] ?? terminalPositions.bulb).map(([x, y, z], index) => {
+    const material = type === 'battery'
+      ? index === 0 ? circuitPositiveTerminalMaterial : circuitNegativeTerminalMaterial
+      : type === 'bulb'
+        ? index === 0 ? circuitPositiveTerminalMaterial : circuitNegativeTerminalMaterial
+        : circuitTerminalMaterial;
+    const terminal = new THREE.Mesh(circuitTerminalGeometry, material);
+    terminal.position.set(x, y, z);
+    terminal.userData.circuitTerminalIndex = index;
+    terminal.castShadow = false;
+    terminal.receiveShadow = false;
+    root.add(terminal);
+    const hitTarget = new THREE.Mesh(circuitTerminalHitGeometry, circuitHitTargetMaterial);
+    hitTarget.position.copy(terminal.position);
+    hitTarget.userData.circuitTerminalIndex = index;
+    root.add(hitTarget);
+    return terminal;
+  });
+}
+
+function preorientCircuitModel(model, type) {
+  const desiredAxis = type === 'battery' ? 'z' : 'x';
+  const bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  const axisNames = ['x', 'y', 'z'];
+  const dimensions = [size.x, size.y, size.z];
+  const longestAxis = axisNames[dimensions.indexOf(Math.max(...dimensions))];
+
+  if (longestAxis !== desiredAxis) {
+    const axisVectors = {
+      x: new THREE.Vector3(1, 0, 0),
+      y: new THREE.Vector3(0, 1, 0),
+      z: new THREE.Vector3(0, 0, 1)
+    };
+    model.quaternion.premultiply(new THREE.Quaternion().setFromUnitVectors(axisVectors[longestAxis], axisVectors[desiredAxis]));
+    groundCircuitModel(model);
+  }
+  return model;
+}
+
+function getCircuitTerminalWorldPosition(component, terminalIndex) {
+  const terminal = component.group.userData.circuitTerminals[terminalIndex];
+  return terminal.getWorldPosition(new THREE.Vector3());
+}
+
+function getNearestCircuitTerminalIndex(component) {
+  const terminals = component.group.userData.circuitTerminals;
+  return terminals.reduce((nearestIndex, terminal, index) => {
+    const projected = terminal.getWorldPosition(new THREE.Vector3()).project(camera);
+    const nearest = terminals[nearestIndex].getWorldPosition(new THREE.Vector3()).project(camera);
+    const distance = Math.hypot(projected.x - pointer.x, projected.y - pointer.y);
+    const nearestDistance = Math.hypot(nearest.x - pointer.x, nearest.y - pointer.y);
+    return distance < nearestDistance ? index : nearestIndex;
+  }, 0);
+}
+
+function circuitUsesBothTerminals() {
+  return circuit.components.every(component => [0, 1].every(terminalIndex =>
+    circuit.wires.some(wire =>
+      (wire.from === component && wire.fromTerminal === terminalIndex) ||
+      (wire.to === component && wire.toTerminal === terminalIndex)
+    )
+  ));
+}
+
+function circuitGraph(excludedType = null) {
+  const components = circuit.components.filter(component => component.type !== excludedType);
+  const adjacency = new Map(components.map(component => [component, new Set()]));
+  circuit.wires.forEach(wire => {
+    if (adjacency.has(wire.from) && adjacency.has(wire.to)) {
+      adjacency.get(wire.from).add(wire.to);
+      adjacency.get(wire.to).add(wire.from);
+    }
+  });
+  return { components, adjacency };
+}
+
+function circuitGraphHasCycle(graph, start = null) {
+  const visited = new Set();
+  const visit = (component, parent) => {
+    visited.add(component);
+    for (const neighbor of graph.adjacency.get(component) ?? []) {
+      if (neighbor === parent) continue;
+      if (visited.has(neighbor) || visit(neighbor, component)) return true;
+    }
+    return false;
+  };
+  const first = start && graph.adjacency.has(start) ? start : graph.components[0];
+  return first ? visit(first, null) : false;
+}
+
+function circuitGraphIsConnected(graph) {
+  if (!graph.components.length) return false;
+  const visited = new Set();
+  const pending = [graph.components[0]];
+  while (pending.length) {
+    const component = pending.pop();
+    if (visited.has(component)) continue;
+    visited.add(component);
+    graph.adjacency.get(component).forEach(neighbor => pending.push(neighbor));
+  }
+  return visited.size === graph.components.length;
+}
+
+function removeShortCircuitEffect() {
+  const effect = circuit.fireEffect;
+  if (!effect) return;
+  scene.remove(effect.root);
+  effect.coneGeometry.dispose();
+  effect.smokeGeometry.dispose();
+  effect.flameMaterials.forEach(material => material.dispose());
+  effect.smokeMaterial.dispose();
+  circuit.fireEffect = null;
+}
+
+function createShortCircuitEffect() {
+  const battery = circuitComponent('battery');
+  if (!battery) return null;
+
+  const root = new THREE.Group();
+  root.position.copy(battery.group.position);
+  scene.add(root);
+
+  const coneGeometry = new THREE.ConeGeometry(0.13, 0.38, 7);
+  const flameMaterials = [0xff4d20, 0xff8a24, 0xffd24a].map(color => new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false
+  }));
+  const flames = Array.from({ length: 9 }, (_, index) => {
+    const mesh = new THREE.Mesh(coneGeometry, flameMaterials[index % flameMaterials.length]);
+    mesh.position.set((index % 3 - 1) * 0.14, 0.74 + (index % 3) * 0.13, index % 2 ? 0.1 : -0.1);
+    mesh.userData.phase = index / 9;
+    mesh.userData.baseY = mesh.position.y;
+    mesh.userData.speed = 0.7 + (index % 4) * 0.12;
+    root.add(mesh);
+    return mesh;
+  });
+  const smokeGeometry = new THREE.SphereGeometry(0.12, 8, 8);
+  const smokeMaterial = new THREE.MeshBasicMaterial({
+    color: 0x64717a,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false
+  });
+  const smoke = Array.from({ length: 5 }, (_, index) => {
+    const mesh = new THREE.Mesh(smokeGeometry, smokeMaterial);
+    mesh.position.set((index % 3 - 1) * 0.12, 0.95 + index * 0.12, 0.02);
+    mesh.userData.phase = index / 5;
+    mesh.userData.speed = 0.22 + (index % 3) * 0.04;
+    root.add(mesh);
+    return mesh;
+  });
+  const light = new THREE.PointLight(0xff6b2e, 2.2, 2.4);
+  light.position.set(0, 0.9, 0);
+  root.add(light);
+
+  return { root, flames, smoke, coneGeometry, smokeGeometry, flameMaterials, smokeMaterial, light, time: 0 };
+}
+
+function setCircuitShorted(shorted) {
+  if (circuit.shortCircuited === shorted) return;
+  circuit.shortCircuited = shorted;
+  if (shorted) {
+    circuit.switchClosed = false;
+    removeCircuitElectrons();
+    circuit.fireEffect = createShortCircuitEffect();
+  } else {
+    removeShortCircuitEffect();
+  }
+}
+
+function checkCircuitConnectivity() {
+  circuit.overloadConnected = false;
+  const requiredTypes = ['battery', 'resistor', 'switch', 'bulb'];
+  const hasAllComponents = requiredTypes.every(type => circuit.components.some(component => component.type === type));
+  const hasResistor = circuit.components.some(component => component.type === 'resistor');
+  const battery = circuitComponent('battery');
+  const withoutResistor = circuitGraph('resistor');
+  const shorted = hasResistor && battery && circuitGraphHasCycle(withoutResistor, battery);
+  setCircuitShorted(Boolean(shorted));
+
+  if (circuit.shortCircuited) {
+    circuit.connected = false;
+    circuit.message = 'SHORT CIRCUIT: the loop bypasses the resistor. Clear the wires to stop the simulated fire.';
+    updateCircuitUI();
+    return;
+  }
+
+  const graph = circuitGraph();
+  const loopComplete = circuitGraphIsConnected(graph) &&
+    circuitGraphHasCycle(graph, battery) &&
+    circuitUsesBothTerminals();
+  const overloadComponents = circuit.components.length === 3 &&
+    ['battery', 'switch', 'bulb'].every(type => circuit.components.some(component => component.type === type));
+  circuit.overloadConnected = !hasResistor && overloadComponents && loopComplete;
+  circuit.connected = loopComplete && (hasAllComponents || circuit.overloadConnected);
+  circuit.message = circuit.overloadConnected
+    ? circuit.bulbBlown
+      ? 'LED blown from sustained overcurrent. Reset the experiment to try again.'
+      : 'Resistor-free loop complete. Close the switch to see the LED overheat.'
+    : circuit.connected
+      ? 'Circuit complete. Close the switch to light the LED.'
+      : 'Connect one lead to each terminal and complete the loop through the resistor.';
   updateCircuitUI();
 }
 
-function checkCircuit() {
-  circuit.connected=allCircuitComponentsPlaced();
-  if(circuit.connected){
-    circuit.message='Circuit connected. Close the switch to light the bulb.';
-  } else {
-    circuit.message='Some components are not on their matching pads yet.';
+function getCircuitCurrent() {
+  if (circuit.shortCircuited) return circuit.voltage / 0.6;
+  if (circuit.overloadConnected && circuit.switchClosed && !circuit.bulbBlown) {
+    return Math.min(3, 0.35 + circuit.overloadTime * 0.65);
+  }
+  return circuit.connected && circuit.switchClosed ? circuit.voltage / circuit.resistance : 0;
+}
+
+function createBulbBurnoutEffect() {
+  const bulb = circuitComponent('bulb');
+  if (!bulb) return;
+  const root = new THREE.Group();
+  root.position.copy(bulb.group.position);
+  scene.add(root);
+
+  const sparkGeometry = new THREE.TetrahedronGeometry(0.08, 0);
+  const sparkMaterials = [0xffd166, 0xff7138].map(color => new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    depthWrite: false
+  }));
+  const sparks = Array.from({ length: 12 }, (_, index) => {
+    const mesh = new THREE.Mesh(sparkGeometry, sparkMaterials[index % sparkMaterials.length]);
+    const angle = (index / 12) * Math.PI * 2;
+    mesh.userData.velocity = new THREE.Vector3(Math.cos(angle) * 0.7, 0.5 + (index % 3) * 0.18, Math.sin(angle) * 0.7);
+    mesh.position.set(0, 0.95, 0);
+    root.add(mesh);
+    return mesh;
+  });
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.24, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xfff0b3, transparent: true, opacity: 0.9, depthWrite: false })
+  );
+  flash.position.y = 0.95;
+  root.add(flash);
+  circuit.burnoutEffect = { root, sparks, flash, sparkGeometry, sparkMaterials, time: 0 };
+}
+
+function removeBulbBurnoutEffect() {
+  const effect = circuit.burnoutEffect;
+  if (!effect) return;
+  scene.remove(effect.root);
+  effect.sparkGeometry.dispose();
+  effect.sparkMaterials.forEach(material => material.dispose());
+  effect.flash.geometry.dispose();
+  effect.flash.material.dispose();
+  circuit.burnoutEffect = null;
+}
+
+function blowCircuitBulb() {
+  if (circuit.bulbBlown) return;
+  circuit.bulbBlown = true;
+  circuit.switchClosed = false;
+  circuit.burnoutTime = 0;
+  removeCircuitElectrons();
+  createBulbBurnoutEffect();
+  const sw = circuitComponent('switch');
+  if (sw?.group.userData.lever) sw.group.userData.lever.rotation.z = 0.35;
+  circuit.message = 'LED blown: sustained overcurrent overheated the bulb. Reset the experiment to replace it.';
+  updateCircuitUI();
+}
+
+function animateBulbBurnout(deltaSeconds) {
+  const effect = circuit.burnoutEffect;
+  if (!effect) return;
+  effect.time += deltaSeconds;
+  effect.sparks.forEach(spark => {
+    spark.position.addScaledVector(spark.userData.velocity, deltaSeconds);
+    spark.userData.velocity.y -= deltaSeconds * 1.5;
+    spark.scale.multiplyScalar(Math.max(0, 1 - deltaSeconds * 0.8));
+  });
+  effect.flash.material.opacity = Math.max(0, 0.9 - effect.time * 1.8);
+  effect.flash.scale.setScalar(1 + effect.time * 2.5);
+  if (effect.time > 1.2) removeBulbBurnoutEffect();
+}
+
+function animateShortCircuitEffect(deltaSeconds) {
+  const effect = circuit.fireEffect;
+  if (!effect) return;
+  effect.time += deltaSeconds;
+  effect.flames.forEach(flame => {
+    const progress = (effect.time * flame.userData.speed + flame.userData.phase) % 1;
+    const flicker = 0.82 + Math.sin(effect.time * 28 + flame.userData.phase * 8) * 0.18;
+    flame.position.y = flame.userData.baseY + progress * 0.28;
+    flame.scale.set(flicker, 0.68 + (1 - progress) * 0.42, flicker);
+    flame.visible = progress < 0.9;
+  });
+  effect.smoke.forEach(puff => {
+    const progress = (effect.time * puff.userData.speed + puff.userData.phase) % 1;
+    puff.position.y = 0.92 + progress * 0.85;
+    puff.scale.setScalar(0.45 + progress * 2.4);
+    puff.visible = progress < 0.82;
+  });
+  effect.light.intensity = 1.5 + Math.sin(effect.time * 24) * 0.7;
+}
+
+function getCircuitCurrentPath() {
+  const battery = circuitComponent('battery');
+  if (!battery || !circuit.connected || !circuit.switchClosed || circuit.shortCircuited) return [];
+
+  const path = [];
+  let current = battery;
+  let previousWire = null;
+  for (let index = 0; index < circuit.wires.length; index += 1) {
+    const wire = circuit.wires.find(candidate => candidate !== previousWire &&
+      (candidate.from === current || candidate.to === current));
+    if (!wire) break;
+
+    const forward = wire.from === current;
+    current = forward ? wire.to : wire.from;
+    path.push({ curve: wire.mesh.geometry.parameters.path, length: wire.mesh.geometry.parameters.path.getLength(), forward });
+    previousWire = wire;
+    if (current === battery) break;
+  }
+
+  return current === battery ? path : [];
+}
+
+function toggleCircuitSwitch() {
+  if (circuit.shortCircuited) {
+    circuit.message = 'Short circuit present. Clear the wires before operating the switch.';
+    updateCircuitUI();
+    return;
+  }
+  if(!circuit.connected){
+    circuit.connected = false;
+    circuit.message = 'Complete the circuit loop before closing the switch.';
+    updateCircuitUI();
+    return;
+  }
+  if (circuit.bulbBlown) {
+    circuit.message = 'LED blown. Reset the experiment to replace it.';
+    updateCircuitUI();
+    return;
+  }
+  circuit.switchClosed=!circuit.switchClosed;
+  if (circuit.overloadConnected) circuit.overloadTime = 0;
+  circuit.message=circuit.switchClosed?'Switch closed: current is flowing.':'Switch open: current stopped.';
+  const sw=circuitComponent('switch');
+  if(sw?.group.userData.lever) {
+    sw.group.userData.lever.rotation.z=circuit.switchClosed?-0.35:0.35;
+  } else if (sw?.group) {
+    sw.group.rotation.y = circuit.switchClosed ? Math.PI / 4 : 0;
   }
   updateCircuitUI();
 }
 
+function toggleConnectionMode() {
+  circuit.connectionMode = !circuit.connectionMode;
+  controls.enabled = !circuit.connectionMode;
+  circuit.connectionStart = null;
+  removeTempWire();
+  const btn = document.querySelector('#connect-mode');
+  btn.textContent = circuit.connectionMode ? 'Cancel Wire' : 'Add Wire';
+  btn.classList.toggle('primary', circuit.connectionMode);
+  circuit.message = circuit.connectionMode ? 'Click near one terminal, then another terminal to add a lead.' : 'Select Add Wire to connect components by hand.';
+  updateCircuitUI();
+}
+
+function clearWires() {
+  circuit.wires.forEach(w => {
+    scene.remove(w.mesh);
+    w.mesh.geometry.dispose();
+    w.mesh.material.dispose();
+  });
+  circuit.wires = [];
+  circuit.connected = false;
+  circuit.current = 0;
+  circuit.switchClosed = false;
+  setCircuitShorted(false);
+  circuit.overloadConnected = false;
+  circuit.overloadTime = 0;
+  circuit.bulbBlown = false;
+  circuit.burnoutTime = 0;
+  removeBulbBurnoutEffect();
+  circuit.message = 'Wires cleared. Select Add Wire to reconnect components.';
+  updateCircuitUI();
+}
+
+function makeWireGeometry(positionA, positionB, radius = 0.035) {
+  const start = positionA.clone();
+  const end = positionB.clone();
+  const controlA = start.clone().lerp(end, 1 / 3);
+  const controlB = start.clone().lerp(end, 2 / 3);
+  controlA.y = 1.3;
+  controlB.y = 1.3;
+  const curve = new THREE.CubicBezierCurve3(start, controlA, controlB, end);
+  return new THREE.TubeGeometry(curve, 24, radius, 8, false);
+}
+
+function createWireMaterial(color, isPreview = false) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.42,
+    metalness: 0.12,
+    transparent: isPreview,
+    opacity: isPreview ? 0.72 : 1
+  });
+}
+
+function removeTempWire() {
+  if (!circuit.tempWire) return;
+  scene.remove(circuit.tempWire);
+  circuit.tempWire.geometry.dispose();
+  circuit.tempWire.material.dispose();
+  circuit.tempWire = null;
+}
+
+function updateTempWire(endPosition) {
+  if (!circuit.connectionStart) return;
+  const startPosition = getCircuitTerminalWorldPosition(
+    circuit.connectionStart.component,
+    circuit.connectionStart.terminalIndex
+  );
+  const previewEnd = endPosition.clone();
+  previewEnd.y = 1.3;
+  if (!circuit.tempWire) {
+    circuit.tempWire = new THREE.Mesh(makeWireGeometry(startPosition, previewEnd, 0.027), createWireMaterial(0x55b7d8, true));
+    scene.add(circuit.tempWire);
+  } else {
+    circuit.tempWire.geometry.dispose();
+    circuit.tempWire.geometry = makeWireGeometry(startPosition, previewEnd, 0.027);
+  }
+}
+
+function createWireBetween(endpointA, endpointB) {
+  const sameConnection = wire =>
+    (wire.from === endpointA.component && wire.fromTerminal === endpointA.terminalIndex && wire.to === endpointB.component && wire.toTerminal === endpointB.terminalIndex) ||
+    (wire.from === endpointB.component && wire.fromTerminal === endpointB.terminalIndex && wire.to === endpointA.component && wire.toTerminal === endpointA.terminalIndex);
+  if (circuit.wires.some(sameConnection)) {
+    circuit.message = 'Those two terminals are already connected.';
+    return false;
+  }
+  const color = circuit.wires.length % 2 === 0 ? 0xc84a45 : 0x283744;
+  const mesh = new THREE.Mesh(
+    makeWireGeometry(
+      getCircuitTerminalWorldPosition(endpointA.component, endpointA.terminalIndex),
+      getCircuitTerminalWorldPosition(endpointB.component, endpointB.terminalIndex)
+    ),
+    createWireMaterial(color)
+  );
+  mesh.castShadow = true;
+  scene.add(mesh);
+  circuit.wires.push({
+    mesh,
+    from: endpointA.component,
+    fromTerminal: endpointA.terminalIndex,
+    to: endpointB.component,
+    toTerminal: endpointB.terminalIndex
+  });
+  return true;
+}
+
+function updateWiresForComponent(component) {
+  circuit.wires.forEach(wire => {
+    if (wire.from.group === component || wire.to.group === component) {
+      wire.mesh.geometry.dispose();
+      wire.mesh.geometry = makeWireGeometry(
+        getCircuitTerminalWorldPosition(wire.from, wire.fromTerminal),
+        getCircuitTerminalWorldPosition(wire.to, wire.toTerminal)
+      );
+    }
+  });
+}
+
 function updateCircuitUI(){
-  const status=document.querySelector('#circuit-status');
   const current=document.querySelector('#circuit-current');
   const bulb=document.querySelector('#circuit-bulb');
   const obs=document.querySelector('#circuit-observation');
-  if(status) status.textContent=circuit.connected?'Connected':'Not connected';
-  circuit.current=circuit.connected&&circuit.switchClosed?circuit.voltage/circuit.resistance:0;
+  const fault=document.querySelector('#circuit-fault');
+  const overloadActive = circuit.overloadConnected && circuit.switchClosed && !circuit.bulbBlown;
+  circuit.current=getCircuitCurrent();
   if(current) current.textContent=`${circuit.current.toFixed(2)} A`;
-  if(bulb) bulb.textContent=circuit.current>0?'ON':'OFF';
+  if(bulb) {
+    bulb.textContent=circuit.shortCircuited?'FAULT':circuit.bulbBlown?'BLOWN':overloadActive&&circuit.overloadTime>1.4?'HOT':circuit.current>0?'ON':'OFF';
+    bulb.classList.toggle('is-on', circuit.current > 0 && !circuit.shortCircuited);
+  }
+  if(fault) {
+    fault.classList.toggle('active', circuit.shortCircuited || overloadActive || circuit.bulbBlown);
+    fault.classList.toggle('overload', !circuit.shortCircuited && (overloadActive || circuit.bulbBlown));
+    fault.textContent = circuit.shortCircuited
+      ? 'SHORT CIRCUIT · A wire bypasses the resistor.'
+      : circuit.bulbBlown
+        ? 'LED BLOWN · Sustained overcurrent overheated the bulb. Reset to replace it.'
+        : overloadActive
+          ? 'NO RESISTOR · LED current is rising; sustained overload will blow the bulb.'
+          : 'SHORT CIRCUIT · Resistor bypassed. Clear wires to stop the simulated fire.';
+  }
   if(obs) obs.textContent=circuit.message;
 }
 
 function showCircuitControls(){
   experimentControls.innerHTML=`
-    <div class="control-title">Simple Circuit controls</div>
-    <div class="control-row"><button id="check-circuit" class="control-button primary">Check connections</button><button id="toggle-switch" class="control-button">Close switch</button></div>
-    <div class="measurement-grid"><div><span>Connection</span><strong id="circuit-status">Not connected</strong></div><div><span>Bulb</span><strong id="circuit-bulb">OFF</strong></div><div><span>Voltage</span><strong>6.00 V</strong></div><div><span>Current</span><strong id="circuit-current">0.00 A</strong></div></div>
-    <div class="equation"><span>V = IR</span><small>Battery 6 V · Resistor 12 Ω</small></div>
-    <div class="drag-status" id="circuit-observation">Place the components on their matching pads.</div>
+    <div class="circuit-panel-heading"><span>DC SERIES CIRCUIT</span><strong>Components</strong></div>
+    <div class="circuit-palette">
+      <button class="circuit-palette-btn" data-component="battery"><strong>Battery</strong><small>6 V source</small></button>
+      <button class="circuit-palette-btn" data-component="resistor"><strong>Resistor</strong><small>12 Ω load</small></button>
+      <button class="circuit-palette-btn" data-component="switch"><strong>Switch</strong><small>SPST control</small></button>
+      <button class="circuit-palette-btn" data-component="bulb"><strong>LED</strong><small>Output indicator</small></button>
+    </div>
+    <div class="circuit-subheading">Connections</div>
+    <div class="control-row">
+      <button id="connect-mode" class="control-button">Add Wire</button>
+      <button id="clear-wires" class="control-button">Clear Wires</button>
+    </div>
+    <div class="measurement-grid"><div><span>LED</span><strong id="circuit-bulb">OFF</strong></div><div><span>Voltage</span><strong>6.00 V</strong></div><div><span>Current</span><strong id="circuit-current">0.00 A</strong></div></div>
+    <div class="equation"><span>V = IR</span><small>Ohm's law · 6 V / 12 Ω</small></div>
+    <div class="circuit-fault" id="circuit-fault" role="status">SHORT CIRCUIT · Resistor bypassed. Clear wires to stop the simulated fire.</div>
+    <div class="drag-status" id="circuit-observation">Select components and place them on the bench.</div>
     <button id="reset-circuit" class="control-button reset-experiment">Reset experiment</button>`;
-  document.querySelector('#check-circuit').addEventListener('click',checkCircuit);
-  document.querySelector('#toggle-switch').addEventListener('click',()=>{toggleCircuitSwitch();document.querySelector('#toggle-switch').textContent=circuit.switchClosed?'Open switch':'Close switch';});
-  document.querySelector('#reset-circuit').addEventListener('click',setupCircuit);
+
+  document.querySelectorAll('.circuit-palette-btn').forEach(btn => {
+    btn.addEventListener('click', () => addCircuitComponentFromPalette(btn.dataset.component));
+  });
+
+  document.querySelector('#connect-mode').addEventListener('click', toggleConnectionMode);
+  document.querySelector('#clear-wires').addEventListener('click', clearWires);
+  document.querySelector('#reset-circuit').addEventListener('click', setupCircuit);
   updateCircuitUI();
 }
 
-function activateCircuit(){
+async function activateCircuit(){
   clearHooke();
   clearChemistry();
-  setupCircuit();
+  await setupCircuit();
+  setCircuitCamera(true);
   showCircuitControls();
-  instructions.innerHTML=`<h2>Simple Circuit</h2><p>Build a basic series circuit and observe the relationship between voltage, resistance, current, and bulb state.</p><ol><li>Drag each component onto its matching pad.</li><li>Click <strong>Check connections</strong>.</li><li>Close the switch.</li><li>Observe the bulb and calculated current.</li></ol><p class="model-note"><strong>Research evidence:</strong> component placement, circuit state, and visual feedback are all driven by the same experiment state.</p>`;
+  instructions.innerHTML=`<h2>Simple Circuit</h2><p>Build a working series loop with a battery, resistor, switch, and LED.</p><ol><li>Add the components to the bench.</li><li>Select <strong>Add Wire</strong>, then click two terminals to join them.</li><li>Connect battery positive through the resistor, LED, and switch back to battery negative.</li><li>Close the switch to observe current. A resistor-free loop overheats the LED; bypassing a resistor causes a short.</li><li>Select a component and press <strong>R</strong> to rotate right or <strong>L</strong> to rotate left.</li></ol><p class="model-note"><strong>Research evidence:</strong> circuit topology drives current, LED state, and fault feedback.</p>`;
 }
 
 function setPointer(event) {
@@ -966,27 +1918,92 @@ renderer.domElement.addEventListener('pointerdown', event => {
   const targets = [...equipment];
   if (hooke.pendingMass) targets.push(hooke.pendingMass);
   if (circuit.active) circuit.components.forEach(c => targets.push(c.group));
+  if (chemistry.active) {
+    if (chemistry.acidBottle) targets.push(chemistry.acidBottle);
+    if (chemistry.baseBottle) targets.push(chemistry.baseBottle);
+  }
   const hits = raycaster.intersectObjects(targets, true);
-  if (!hits.length) return;
-  selected = hits[0].object;
-  while (selected.parent && !selected.userData.equipmentType && !selected.userData.isHookeMass && !selected.userData.isCircuitComponent) selected = selected.parent;
+  if (!hits.length) {
+    selected = null;
+    removeSelectedBtn.disabled = true;
+    return;
+  }
+  const terminalHit = circuit.active && circuit.connectionMode
+    ? hits.find(hit => Number.isInteger(hit.object.userData.circuitTerminalIndex))
+    : null;
+  const selectionHit = terminalHit ?? hits[0];
+  selected = selectionHit.object;
+  while (selected.parent && !selected.userData.equipmentType && !selected.userData.isHookeMass && !selected.userData.isCircuitComponent && !selected.userData.isAcidBottle && !selected.userData.isBaseBottle) selected = selected.parent;
+  if (selected.userData.isCircuitComponent) selectedCircuitComponent = selected;
+
+  // Circuit connection mode
+  if (circuit.active && circuit.connectionMode && selected.userData.isCircuitComponent) {
+    const component = circuit.components.find(c => c.group === selected);
+    if (component) {
+      const terminalIndex = terminalHit?.object.userData.circuitTerminalIndex ?? getNearestCircuitTerminalIndex(component);
+      const endpoint = { component, terminalIndex };
+      const terminalLabel = component.type === 'battery'
+        ? endpoint.terminalIndex === 0 ? 'Positive (+)' : 'Negative (-)'
+        : component.type === 'bulb'
+          ? endpoint.terminalIndex === 0 ? 'Anode (+)' : 'Cathode (-)'
+          : endpoint.terminalIndex === 0 ? 'A' : 'B';
+      if (!circuit.connectionStart) {
+        const label = component.type === 'bulb' ? 'LED' : component.type[0].toUpperCase() + component.type.slice(1);
+        circuit.connectionStart = endpoint;
+        circuit.message = `${label} terminal ${terminalLabel} selected. Click another terminal to connect it.`;
+      } else if (circuit.connectionStart.component !== component || circuit.connectionStart.terminalIndex !== endpoint.terminalIndex) {
+        if (createWireBetween(circuit.connectionStart, endpoint)) {
+          circuit.message = 'Lead added. Click two more terminals to continue wiring.';
+          checkCircuitConnectivity();
+        } else {
+          updateCircuitUI();
+        }
+        circuit.connectionStart = null;
+        removeTempWire();
+      } else {
+        circuit.message = 'Choose the other terminal or another component terminal.';
+      }
+      updateCircuitUI();
+    }
+    selected = null;
+    removeSelectedBtn.disabled = true;
+    return;
+  }
+
   if (selected.userData.isCircuitComponent && selected.userData.circuitType === 'switch') {
     toggleCircuitSwitch();
     selected = null;
+    removeSelectedBtn.disabled = true;
     return;
+  }
+  if (chemistry.active && (selected.userData.isAcidBottle || selected.userData.isBaseBottle)) {
+    applyChemistryAction(selected.userData.isAcidBottle ? 'acid' : 'base');
+    selected = null;
+    controls.enabled = true;
+    return;
+  }
+  if (selected.userData.equipmentType) {
+    removeSelectedBtn.disabled = false;
   }
   controls.enabled = false;
 });
 
 renderer.domElement.addEventListener('pointermove', event => {
-  if (!selected) return;
+  if (!selected) {
+    if (circuit.active && circuit.connectionMode && circuit.connectionStart) {
+      setPointer(event);
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) updateTempWire(dragPoint);
+    }
+    return;
+  }
   setPointer(event);
   raycaster.setFromCamera(pointer, camera);
   if (selected.userData.isHookeMass && !selected.userData.attached) {
     if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
       selected.position.x = dragPoint.x;
       selected.position.z = dragPoint.z;
-      selected.position.y = 0.72;
+      selected.position.y = 1.15;
     }
     return;
   }
@@ -994,14 +2011,14 @@ renderer.domElement.addEventListener('pointermove', event => {
     if (raycaster.ray.intersectPlane(dragPlane, dragPoint)) {
       selected.position.x = dragPoint.x;
       selected.position.z = dragPoint.z;
-      selected.position.y = 0;
-      const item=circuit.components.find(c=>c.group===selected);
-      if(item && selected.position.distanceTo(item.target)<0.35){
-        selected.position.copy(item.target);
+      selected.position.y = 1.2;
+      updateWiresForComponent(selected);
+      if (circuit.fireEffect && circuitComponent('battery')?.group === selected) {
+        circuit.fireEffect.root.position.copy(selected.position);
       }
-      buildCircuitWires();
       circuit.connected=false;
       circuit.switchClosed=false;
+      circuit.overloadTime=0;
       updateCircuitUI();
     }
     return;
@@ -1014,32 +2031,119 @@ renderer.domElement.addEventListener('pointermove', event => {
 
 window.addEventListener('pointerup', () => {
   if (selected?.userData?.isHookeMass && !selected.userData.attached) {
-    const nearSpring = Math.abs(selected.position.x - 1.05) < 0.8 && Math.abs(selected.position.z) < 0.8;
+    const nearSpring = Math.abs(selected.position.x - 2.1) < 0.8 && Math.abs(selected.position.z) < 0.8;
     if (nearSpring && selected === hooke.pendingMass) attachPendingMass();
   }
   if (selected?.userData?.isCircuitComponent) {
-    const item=circuit.components.find(c=>c.group===selected);
-    if(item && selected.position.distanceTo(item.target)<0.6) selected.position.copy(item.target);
-    buildCircuitWires();
-    circuit.connected=allCircuitComponentsPlaced();
-    circuit.message=circuit.connected?'Circuit connected. Close the switch to light the bulb.':'Keep placing components on their matching pads.';
-    updateCircuitUI();
+    checkCircuitConnectivity();
   }
   selected = null;
-  controls.enabled = true;
+  controls.enabled = !circuit.connectionMode;
 });
 
-window.addEventListener('resize', () => {
+window.addEventListener('keydown', event => {
+  const rotationKey = event.key.toLowerCase();
+  if (!['r', 'l'].includes(rotationKey) || !circuit.active || !selectedCircuitComponent) return;
+  if (event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return;
+  const direction = rotationKey === 'r' ? 1 : -1;
+  selectedCircuitComponent.rotation.y += direction * Math.PI / 12;
+  updateWiresForComponent(selectedCircuitComponent);
+  if (circuit.fireEffect && circuitComponent('battery')?.group === selectedCircuitComponent) {
+    circuit.fireEffect.root.position.copy(selectedCircuitComponent.position);
+  }
+  circuit.message = `${selectedCircuitComponent.userData.label} rotated ${direction > 0 ? 'right' : 'left'}.`;
+  updateCircuitUI();
+});
+
+function handleResize() {
   camera.aspect = lab.clientWidth / lab.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(lab.clientWidth, lab.clientHeight);
-});
+}
+
+window.addEventListener('resize', handleResize);
 
 document.querySelectorAll('[data-equipment]').forEach(button => {
-  button.addEventListener('click', () => {
-    if (button.dataset.equipment === 'flask') addFlask();
-    else addEquipment(button.dataset.equipment);
+  button.addEventListener('click', async () => {
+    const type = button.dataset.equipment;
+    if (type === 'flask') await addFlask();
+    else if (['bunsen-burner', 'test-tube-rack', 'tripod-stand', 'funnel'].includes(type)) {
+      await addRealEquipment(type);
+    }
+    else addEquipment(type);
   });
+});
+
+// New equipment dropdown and buttons
+addEquipmentBtn.addEventListener('click', async () => {
+  const type = equipmentSelect.value;
+  if (!type) return;
+
+  if (type === 'flask') await addFlask();
+  else if (['bunsen-burner', 'test-tube-rack', 'tripod-stand', 'funnel'].includes(type)) {
+    await addRealEquipment(type);
+  }
+  else addEquipment(type);
+
+  equipmentSelect.value = '';
+});
+
+removeSelectedBtn.addEventListener('click', () => {
+  if (selected && equipment.includes(selected)) {
+    scene.remove(selected);
+    const index = equipment.indexOf(selected);
+    if (index > -1) equipment.splice(index, 1);
+    selected = null;
+    removeSelectedBtn.disabled = true;
+  }
+});
+
+clearAllBtn.addEventListener('click', () => {
+  equipment.forEach(object => scene.remove(object));
+  equipment.length = 0;
+  selected = null;
+  removeSelectedBtn.disabled = true;
+});
+
+// Sidebar toggle functionality
+toggleLeftBtn.addEventListener('click', () => {
+  leftSidebar.classList.toggle('collapsed');
+  toggleLeftBtn.textContent = leftSidebar.classList.contains('collapsed') ? '▶' : '◀';
+
+  // Update grid columns
+  const leftCollapsed = leftSidebar.classList.contains('collapsed');
+  const rightCollapsed = rightSidebar.classList.contains('collapsed');
+
+  app.classList.remove('left-collapsed', 'right-collapsed', 'both-collapsed');
+  if (leftCollapsed && rightCollapsed) {
+    app.classList.add('both-collapsed');
+  } else if (leftCollapsed) {
+    app.classList.add('left-collapsed');
+  } else if (rightCollapsed) {
+    app.classList.add('right-collapsed');
+  }
+
+  setTimeout(handleResize, 300);
+});
+
+toggleRightBtn.addEventListener('click', () => {
+  rightSidebar.classList.toggle('collapsed');
+  toggleRightBtn.textContent = rightSidebar.classList.contains('collapsed') ? '◀' : '▶';
+
+  // Update grid columns
+  const leftCollapsed = leftSidebar.classList.contains('collapsed');
+  const rightCollapsed = rightSidebar.classList.contains('collapsed');
+
+  app.classList.remove('left-collapsed', 'right-collapsed', 'both-collapsed');
+  if (leftCollapsed && rightCollapsed) {
+    app.classList.add('both-collapsed');
+  } else if (leftCollapsed) {
+    app.classList.add('left-collapsed');
+  } else if (rightCollapsed) {
+    app.classList.add('right-collapsed');
+  }
+
+  setTimeout(handleResize, 300);
 });
 
 const experiments = {
@@ -1048,30 +2152,26 @@ const experiments = {
   circuit: { title: 'Simple Circuit', description: 'Prototype workflow for an interactive electricity practical.', steps: ['Place the circuit components.', 'Connect the components.', 'Toggle the switch and observe the bulb.'] }
 };
 
-document.querySelectorAll('[data-experiment]').forEach(button => {
-  button.addEventListener('click', () => {
-    document.querySelectorAll('.experiment').forEach(item => item.classList.remove('active'));
-    button.classList.add('active');
-    const id = button.dataset.experiment;
-    if (id === 'hooke') { activateHooke(); return; }
-    if (id === 'acid-base') { activateChemistry(); return; }
-    if (id === 'circuit') { activateCircuit(); return; }
-    clearHooke();
-    clearChemistry();
-    clearCircuit();
-    experimentControls.innerHTML = '';
-    instructions.innerHTML = `<h2>${experiments[id].title}</h2><p>${experiments[id].description}</p><ol>${experiments[id].steps.map(step => `<li>${step}</li>`).join('')}</ol>`;
-  });
+experimentSelect.addEventListener('change', async () => {
+  const id = experimentSelect.value;
+  if (id === 'hooke') { await activateHooke(); return; }
+  if (id === 'acid-base') { await activateChemistry(); return; }
+  if (id === 'circuit') { await activateCircuit(); return; }
+  clearHooke();
+  clearChemistry();
+  clearCircuit();
+  experimentControls.innerHTML = '';
+  instructions.innerHTML = `<h2>${experiments[id].title}</h2><p>${experiments[id].description}</p><ol>${experiments[id].steps.map(step => `<li>${step}</li>`).join('')}</ol>`;
 });
 
-document.querySelector('#reset').addEventListener('click', () => {
+document.querySelector('#reset').addEventListener('click', async () => {
   equipment.forEach(object => scene.remove(object));
   equipment.length = 0;
   clearCircuit();
   selected = null;
-  document.querySelectorAll('.experiment').forEach(item => item.classList.remove('active'));
-  document.querySelector('[data-experiment="hooke"]').classList.add('active');
-  activateHooke();
+  removeSelectedBtn.disabled = true;
+  experimentSelect.value = 'hooke';
+  await activateHooke();
 });
 
 let lastPhysicsTime = performance.now();
@@ -1087,51 +2187,44 @@ function animate(time = 0) {
   controls.update();
   chemistry.stirPhase = time * 0.001;
   if (chemistry.active) {
-    chemistry.bubbles.forEach((bubble, index) => {
-      bubble.position.y += bubble.userData.speed * 0.006;
-      bubble.position.x += Math.sin(time * 0.002 + index) * 0.0009;
-      if (bubble.position.y > 1.95) bubble.position.y = 0.62;
-    });
-    chemistry.precipitate.forEach(p => {
-      p.position.y = Math.max(0.43, p.position.y - p.userData.sink * 0.002);
-      p.position.x += Math.sin(time * 0.001 + p.position.y) * 0.0005;
-    });
-    chemistry.droplets.forEach(drop => {
-      drop.userData.life += 0.035;
-      drop.position.y -= 0.055;
-      if (drop.userData.life > 1 || drop.position.y < 0.8) {
-        scene.remove(drop);
-        const i = chemistry.droplets.indexOf(drop);
-        if (i >= 0) chemistry.droplets.splice(i, 1);
-      }
-    });
-    if (chemistry.liquid) chemistry.liquid.material.color.lerp(chemistry.liquidTargetColor, 0.045);
+    if (chemistry.liquid) chemistry.liquid.material.color.lerp(chemistry.liquidTargetColor, 0.08);
   }
   if (circuit.active) {
     const bulb = circuitComponent('bulb');
     const glass = bulb?.group.userData.glass;
-    circuit.current = circuit.connected && circuit.switchClosed ? circuit.voltage / circuit.resistance : 0;
-    if (glass) {
-      circuit.bulbGlow = THREE.MathUtils.lerp(circuit.bulbGlow, circuit.current > 0 ? 1 : 0, 0.08);
-      glass.material.emissive.set(circuit.current > 0 ? 0xffd166 : 0x000000);
-      glass.material.emissiveIntensity = circuit.bulbGlow * 1.7;
-      glass.material.color.set(circuit.current > 0 ? 0xfff4b8 : 0xf8fafc);
+    if (circuit.overloadConnected && circuit.switchClosed && !circuit.bulbBlown) {
+      circuit.overloadTime += deltaSeconds;
+      if (circuit.overloadTime >= 4.5) blowCircuitBulb();
     }
-    if (circuit.current > 0 && circuit.electrons.length < 18) {
+    circuit.current = getCircuitCurrent();
+    animateShortCircuitEffect(deltaSeconds);
+    animateBulbBurnout(deltaSeconds);
+    if (glass) {
+      const lampOn = circuit.current > 0 && !circuit.shortCircuited && !circuit.bulbBlown;
+      const overloadHeat = circuit.overloadConnected ? THREE.MathUtils.clamp(circuit.overloadTime / 4.5, 0, 1) : 0;
+      circuit.bulbGlow = THREE.MathUtils.lerp(circuit.bulbGlow, lampOn ? 1 : 0, 0.08);
+      glass.material.emissive.set(lampOn ? (overloadHeat > 0.65 ? 0xff4b20 : 0xffd166) : 0x000000);
+      glass.material.emissiveIntensity = circuit.bulbGlow * (1.7 + overloadHeat * 3.8);
+      glass.material.color.set(circuit.bulbBlown ? 0x383b3e : lampOn && overloadHeat > 0.55 ? 0xffffb0 : lampOn ? 0xfff4b8 : 0xf8fafc);
+      if ('opacity' in glass.material) glass.material.opacity = circuit.bulbBlown ? 0.38 : 0.72;
+    }
+    const currentPath = getCircuitCurrentPath();
+    const pathLength = currentPath.reduce((total, segment) => total + segment.length, 0);
+    if (pathLength > 0 && circuit.electrons.length < 18) {
       const e=new THREE.Mesh(new THREE.SphereGeometry(0.035,8,8),new THREE.MeshStandardMaterial({color:0x38bdf8,emissive:0x0ea5e9,emissiveIntensity:1.2}));
       e.userData.t=Math.random(); scene.add(e); circuit.electrons.push(e);
     }
+    if (pathLength === 0 && circuit.electrons.length) removeCircuitElectrons();
     circuit.electrons.forEach(e=>{
       e.userData.t=(e.userData.t+0.0025)%1;
-      const b=circuitComponent('battery')?.group.position;
-      const r=circuitComponent('resistor')?.group.position;
-      const sw=circuitComponent('switch')?.group.position;
-      const bl=circuitComponent('bulb')?.group.position;
-      if(b&&r&&sw&&bl){
-        const points=[b,r,sw,bl,b];
-        const scaled=e.userData.t*(points.length-1); const i=Math.floor(scaled); const f=scaled-i;
-        const a=points[i], z=points[Math.min(i+1,points.length-1)];
-        e.position.lerpVectors(a,z,f); e.position.y+=0.75;
+      let distance = e.userData.t * pathLength;
+      for (const segment of currentPath) {
+        if (distance <= segment.length) {
+          const progress = distance / segment.length;
+          e.position.copy(segment.curve.getPointAt(segment.forward ? progress : 1 - progress));
+          break;
+        }
+        distance -= segment.length;
       }
     });
     updateCircuitUI();
@@ -1139,5 +2232,5 @@ function animate(time = 0) {
   renderer.render(scene, camera);
 }
 
-activateHooke();
+activateHooke().catch(err => console.error('Failed to initialize Hooke experiment:', err));
 renderer.setAnimationLoop(animate);

@@ -8,28 +8,55 @@
 </head>
 <body>
 <div class="app">
-<aside class="sidebar">
+<aside class="sidebar" id="left-sidebar">
+<button class="sidebar-toggle" id="toggle-left-sidebar" title="Toggle sidebar">◀</button>
+<div class="sidebar-content">
 <div class="brand"><h1>Virtual Laboratory</h1><p>Three.js research prototype</p></div>
 <div class="section-title">Equipment</div>
-<div class="equipment-list">
-<button class="tool" data-equipment="beaker"><strong>Beaker</strong><span>Add to bench</span></button>
-<button class="tool" data-equipment="flask"><strong>Flask</strong><span>Add to bench</span></button>
-<button class="tool" data-equipment="test-tube"><strong>Test Tube</strong><span>Add to bench</span></button>
-<button class="tool" data-equipment="ruler"><strong>Ruler</strong><span>Add to bench</span></button>
+<div class="equipment-dropdown">
+  <select id="equipment-select" class="equipment-select">
+    <option value="">Select equipment...</option>
+    <option value="beaker">Beaker</option>
+    <option value="flask">Flask</option>
+    <option value="test-tube">Test Tube</option>
+    <option value="ruler">Ruler</option>
+    <option value="bunsen-burner">Bunsen Burner</option>
+    <option value="test-tube-rack">Test Tube Rack</option>
+    <option value="tripod-stand">Tripod Stand</option>
+    <option value="funnel">Funnel</option>
+  </select>
+  <button id="add-equipment" class="add-equipment-btn">Add</button>
 </div>
-<div class="status"><strong>Prototype status</strong><br>Equipment can be added and moved around the 3D bench. Circuit components can also be dragged into position.<br><br><strong>Model attribution</strong><br>Erlenmeyer flask by Poly by Google [CC-BY] via Poly Pizza.</div>
+<div class="equipment-actions">
+  <button id="remove-selected" class="remove-btn" disabled>Remove Selected</button>
+  <button id="clear-all" class="clear-btn">Clear All</button>
+</div>
+<a class="technology-link" href="./technology.html">
+  <span class="technology-mark" aria-hidden="true">i</span>
+  <span class="technology-link-copy"><strong>Technology &amp; assets</strong><small>Stack, models, licenses</small></span>
+  <span class="technology-link-arrow" aria-hidden="true">&rarr;</span>
+</a>
+<div class="status"><strong>Prototype status</strong><br>Equipment can be added and moved around the 3D bench. Circuit components can also be dragged into position.<br><br><strong>Model attribution</strong><br>Erlenmeyer flask by Poly by Google [CC-BY] via Poly Pizza. Additional lab equipment models from virtual labs collection.</div>
+</div>
 </aside>
 <main class="lab"><canvas id="lab-canvas"></canvas><div class="hint">Drag equipment. Use the mouse to orbit the camera.</div></main>
-<aside class="sidebar right">
+<aside class="sidebar right" id="right-sidebar">
+<button class="sidebar-toggle" id="toggle-right-sidebar" title="Toggle sidebar">▶</button>
+<div class="sidebar-scroll-wrapper">
+<div class="sidebar-content">
 <div class="section-title">Experiments</div>
-<div class="experiment-list">
-<button class="experiment active" data-experiment="hooke"><strong>Hooke's Law</strong><span>Spring extension and mass</span></button>
-<button class="experiment" data-experiment="acid-base"><strong>Acid / Base</strong><span>Mixing and observations</span></button>
-<button class="experiment" data-experiment="circuit"><strong>Simple Circuit</strong><span>Battery, switch and bulb</span></button>
+<div class="experiment-dropdown">
+  <select id="experiment-select" class="experiment-select">
+    <option value="hooke" selected>Hooke's Law</option>
+    <option value="acid-base">Acid / Base</option>
+    <option value="circuit">Simple Circuit</option>
+  </select>
 </div>
 <div id="instructions" class="instructions"></div>
 <div id="experiment-controls" class="experiment-controls"></div>
 <button id="reset" class="reset">Reset laboratory</button>
+</div>
+</div>
 </aside>
 </div>
 <script type="module" src="main.js"></script>
