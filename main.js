@@ -780,7 +780,8 @@ async function activateHooke() {
 // ---------------- Acid / Base visual chemistry lab ----------------
 const chemistry = {
   active: false,
-  mode: 'indicator',
+  mode: 'acid-base',
+  experimentType: 'acid-base',
   liquid: null,
   liquidTargetColor: new THREE.Color(0x78d7ff),
   beaker: null,
@@ -788,18 +789,30 @@ const chemistry = {
   conicalFlaskModel: null,
   acidBottle: null,
   baseBottle: null,
+  precipitateBottle: null,
+  gasBottle: null,
+  bunsenBurner: null,
+  thermometer: null,
   bubbles: [],
   precipitate: [],
   droplets: [],
+  gasParticles: [],
   stirPhase: 0,
   volume: 0,
   acidRemaining: 0.3,
   baseRemaining: 0.3,
+  precipitateRemaining: 0.3,
+  gasRemaining: 0.3,
   acid: 0,
   base: 0,
+  precipitateReagent: 0,
+  gasReagent: 0,
   ph: 7,
   temperature: 25,
-  message: 'Drag the acid or base bottle over the flask to pour.'
+  isHeating: false,
+  heatIntensity: 0,
+  reactionComplete: false,
+  message: 'Select a reagent to add to the flask.'
 };
 const chemistryStockConcentration = 0.1;
 
@@ -807,16 +820,35 @@ function clearChemistry() {
   if (chemistry.beaker) scene.remove(chemistry.beaker);
   if (chemistry.acidBottle) scene.remove(chemistry.acidBottle);
   if (chemistry.baseBottle) scene.remove(chemistry.baseBottle);
+  if (chemistry.precipitateBottle) scene.remove(chemistry.precipitateBottle);
+  if (chemistry.gasBottle) scene.remove(chemistry.gasBottle);
+  if (chemistry.bunsenBurner) scene.remove(chemistry.bunsenBurner);
+  if (chemistry.thermometer) scene.remove(chemistry.thermometer);
+  if (chemistry.dropper) scene.remove(chemistry.dropper);
+  if (chemistry.crucible) scene.remove(chemistry.crucible);
+  if (chemistry.petriDish) scene.remove(chemistry.petriDish);
   chemistry.bubbles.forEach(b => scene.remove(b));
   chemistry.precipitate.forEach(p => scene.remove(p));
   chemistry.droplets.forEach(d => scene.remove(d));
+  chemistry.gasParticles.forEach(g => scene.remove(g));
   chemistry.bubbles = [];
   chemistry.precipitate = [];
   chemistry.droplets = [];
+  chemistry.gasParticles = [];
   chemistry.liquid = null;
   chemistry.beaker = null;
   chemistry.acidBottle = null;
   chemistry.baseBottle = null;
+  chemistry.precipitateBottle = null;
+  chemistry.gasBottle = null;
+  chemistry.bunsenBurner = null;
+  chemistry.thermometer = null;
+  chemistry.dropper = null;
+  chemistry.crucible = null;
+  chemistry.petriDish = null;
+  chemistry.isHeating = false;
+  chemistry.heatIntensity = 0;
+  chemistry.reactionComplete = false;
 }
 
 async function createChemBeaker() {
@@ -955,6 +987,217 @@ function createBaseBottle() {
   return group;
 }
 
+function createPrecipitateBottle() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
+    new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.4 })
+  );
+  body.position.y = 0.9;
+  group.add(body);
+
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
+    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
+  );
+  neck.position.y = 1.4;
+  group.add(neck);
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
+  );
+  cap.position.y = 1.55;
+  group.add(cap);
+
+  const label = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.15, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xffffff })
+  );
+  label.position.set(0, 0.9, 0.27);
+  group.add(label);
+
+  group.userData.isPrecipitateBottle = true;
+  group.position.set(-3.5, 0.7, 0.5);
+  setupModelShadows(group);
+  return group;
+}
+
+function createGasBottle() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
+    new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.4 })
+  );
+  body.position.y = 0.9;
+  group.add(body);
+
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
+    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
+  );
+  neck.position.y = 1.4;
+  group.add(neck);
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
+    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
+  );
+  cap.position.y = 1.55;
+  group.add(cap);
+
+  const label = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.15, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xffffff })
+  );
+  label.position.set(0, 0.9, 0.27);
+  group.add(label);
+
+  group.userData.isGasBottle = true;
+  group.position.set(3.5, 0.7, 0.5);
+  setupModelShadows(group);
+  return group;
+}
+
+function createBunsenBurner() {
+  const group = new THREE.Group();
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.4, 0.12, 24),
+    new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.6, roughness: 0.3 })
+  );
+  base.position.y = 0.06;
+  group.add(base);
+
+  const tube = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.12, 0.7, 16),
+    new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.5, roughness: 0.4 })
+  );
+  tube.position.y = 0.47;
+  group.add(tube);
+
+  const collar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.14, 0.08, 16),
+    new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.6, roughness: 0.3 })
+  );
+  collar.position.y = 0.65;
+  group.add(collar);
+
+  group.userData.isBunsenBurner = true;
+  group.position.set(0, 0.35, 1.2);
+  setupModelShadows(group);
+  return group;
+}
+
+function createThermometer() {
+  const group = new THREE.Group();
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 1.2, 12),
+    new THREE.MeshStandardMaterial({ color: 0xe5e7eb, transparent: true, opacity: 0.7 })
+  );
+  stem.position.y = 0.6;
+  group.add(stem);
+
+  const bulb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.06, 16, 12),
+    new THREE.MeshStandardMaterial({ color: 0xef4444 })
+  );
+  bulb.position.y = 0.06;
+  group.add(bulb);
+
+  const liquid = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.015, 0.015, 0.8, 8),
+    new THREE.MeshStandardMaterial({ color: 0xef4444 })
+  );
+  liquid.position.y = 0.45;
+  group.add(liquid);
+
+  group.userData.isThermometer = true;
+  group.position.set(0.8, 1.2, 0);
+  setupModelShadows(group);
+  return group;
+}
+
+function createDropper() {
+  const group = new THREE.Group();
+  const bulb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 16, 12),
+    new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.7 })
+  );
+  bulb.position.y = 0.6;
+  group.add(bulb);
+
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.02, 0.5, 12),
+    new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.7 })
+  );
+  stem.position.y = 0.25;
+  group.add(stem);
+
+  const tip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.02, 0.08, 12),
+    new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.7 })
+  );
+  tip.position.y = 0.01;
+  group.add(tip);
+
+  group.userData.isDropper = true;
+  group.position.set(-0.8, 1.5, 0);
+  setupModelShadows(group);
+  return group;
+}
+
+function createCrucible() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.22, 0.35, 24, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.4 })
+  );
+  body.position.y = 0.175;
+  group.add(body);
+
+  const lip = new THREE.Mesh(
+    new THREE.TorusGeometry(0.25, 0.02, 8, 24),
+    new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.4 })
+  );
+  lip.rotation.x = Math.PI / 2;
+  lip.position.y = 0.35;
+  group.add(lip);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.08, 16),
+    new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.4 })
+  );
+  base.position.y = 0.04;
+  group.add(base);
+
+  group.userData.isCrucible = true;
+  group.position.set(1.5, 0.5, -0.5);
+  setupModelShadows(group);
+  return group;
+}
+
+function createPetriDish() {
+  const group = new THREE.Group();
+  const dish = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.38, 0.08, 32, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xe5e7eb, transparent: true, opacity: 0.85 })
+  );
+  dish.position.y = 0.04;
+  group.add(dish);
+
+  const lid = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.42, 0.02, 32),
+    new THREE.MeshStandardMaterial({ color: 0xe5e7eb, transparent: true, opacity: 0.7 })
+  );
+  lid.position.y = 0.55;
+  group.add(lid);
+
+  group.userData.isPetriDish = true;
+  group.position.set(-1.5, 0.35, -0.5);
+  setupModelShadows(group);
+  return group;
+}
+
 function createReagentBottle(label, color) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.95, 32), new THREE.MeshStandardMaterial({ color, roughness: 0.4 }));
@@ -1008,6 +1251,33 @@ function spawnPrecipitate() {
   chemistry.precipitate.push(particle);
 }
 
+function spawnGasParticle() {
+  const particle = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04 + Math.random() * 0.03, 8, 6),
+    new THREE.MeshPhysicalMaterial({ color: 0x10b981, transparent: true, opacity: 0.6, roughness: 0.1 })
+  );
+  particle.position.set((Math.random() - 0.5) * 0.6, 0.7 + Math.random() * 0.3, (Math.random() - 0.5) * 0.6);
+  particle.userData.rise = 0.15 + Math.random() * 0.2;
+  particle.userData.wobble = Math.random() * Math.PI * 2;
+  scene.add(particle);
+  chemistry.gasParticles.push(particle);
+}
+
+function createHeatingEffect() {
+  const group = new THREE.Group();
+  const flameColors = [0xff6b35, 0xffd700, 0xff4500];
+  for (let i = 0; i < 5; i++) {
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.08 + Math.random() * 0.04, 0.25 + Math.random() * 0.1, 8),
+      new THREE.MeshBasicMaterial({ color: flameColors[i % 3], transparent: true, opacity: 0.8 })
+    );
+    flame.position.set((Math.random() - 0.5) * 0.1, 0.12, (Math.random() - 0.5) * 0.1);
+    flame.userData.phase = Math.random() * Math.PI * 2;
+    group.add(flame);
+  }
+  return group;
+}
+
 function setChemistryLiquid(color, height = 0.72) {
   if (!chemistry.liquid) return;
   chemistry.liquidTargetColor.set(color);
@@ -1018,8 +1288,14 @@ function setChemistryLiquid(color, height = 0.72) {
 
 function chemistryState() {
   if (chemistry.volume <= 0) {
-    return { ph: null, color: 0xcfefff, label: 'Empty', concentration: null, concentrationLabel: 'No solution' };
+    return { ph: null, color: 0xcfefff, label: 'Empty', concentration: null, concentrationLabel: 'No solution', reaction: 'None' };
   }
+
+  let color = 0xf3f1a7;
+  let label = 'Neutral';
+  let reaction = 'None';
+
+  // Acid-Base reaction
   const net = chemistry.base - chemistry.acid;
   const totalReagent = chemistry.acid + chemistry.base;
   const concentration = chemistryStockConcentration * Math.abs(net) / totalReagent;
@@ -1031,17 +1307,43 @@ function chemistryState() {
     : net > 0
       ? `${concentration.toFixed(2)} M base`
       : '0.00 M (neutral mix)';
-  let color = 0xf3f1a7;
-  let label = 'Neutral';
+
   if (chemistry.ph < 4) { color = 0xf05a67; label = 'Acidic'; }
   else if (chemistry.ph < 6.5) { color = 0xff9f43; label = 'Acidic'; }
   else if (chemistry.ph > 10) { color = 0x7b61ff; label = 'Basic'; }
   else if (chemistry.ph > 7.5) { color = 0x4fd1c5; label = 'Basic'; }
-  return { ph: chemistry.ph, color, label, concentration, concentrationLabel };
+
+  // Precipitation reaction
+  if (chemistry.precipitateReagent > 0.1) {
+    color = 0xf5f5dc;
+    label = 'Precipitate forming';
+    reaction = 'Precipitation';
+  }
+
+  // Gas evolution reaction
+  if (chemistry.gasReagent > 0.1) {
+    color = 0x6ee7b7;
+    label = 'Gas evolving';
+    reaction = 'Gas Evolution';
+  }
+
+  // Heating effect
+  if (chemistry.temperature > 50) {
+    label += ' (Heated)';
+    reaction = 'Heating';
+  }
+
+  return { ph: chemistry.ph, color, label, concentration, concentrationLabel, reaction, temperature: chemistry.temperature };
 }
 
 function applyChemistryAction(type) {
-  const remainingKey = type === 'acid' ? 'acidRemaining' : 'baseRemaining';
+  const remainingMap = {
+    'acid': 'acidRemaining',
+    'base': 'baseRemaining',
+    'precipitate': 'precipitateRemaining',
+    'gas': 'gasRemaining'
+  };
+  const remainingKey = remainingMap[type];
   if (chemistry[remainingKey] <= 0) {
     chemistry.message = `The ${type} bottle is empty.`;
     updateChemistryUI();
@@ -1054,6 +1356,7 @@ function applyChemistryAction(type) {
   }
   chemistry[remainingKey] = Math.max(0, Math.round((chemistry[remainingKey] - 0.05) * 100) / 100);
   chemistry.volume = Math.min(0.6, chemistry.volume + 0.05);
+
   if (type === 'acid') {
     chemistry.acid += 0.3;
     const state = chemistryState();
@@ -1064,6 +1367,18 @@ function applyChemistryAction(type) {
     const state = chemistryState();
     updateChemistryLiquid(state.color, chemistry.volume);
     chemistry.message = `Base added. ${state.label}; ${state.concentrationLabel}.`;
+  } else if (type === 'precipitate') {
+    chemistry.precipitateReagent += 0.3;
+    const state = chemistryState();
+    updateChemistryLiquid(state.color, chemistry.volume);
+    for (let i = 0; i < 8; i++) spawnPrecipitate();
+    chemistry.message = `Precipitate reagent added. Solid particles forming at the bottom.`;
+  } else if (type === 'gas') {
+    chemistry.gasReagent += 0.3;
+    const state = chemistryState();
+    updateChemistryLiquid(state.color, chemistry.volume);
+    for (let i = 0; i < 12; i++) spawnGasParticle();
+    chemistry.message = `Gas-producing reagent added. Bubbles rising from the solution.`;
   }
   updateChemistryUI();
 }
@@ -1071,19 +1386,38 @@ function applyChemistryAction(type) {
 function resetChemistry() {
   chemistry.acid = 0;
   chemistry.base = 0;
+  chemistry.precipitateReagent = 0;
+  chemistry.gasReagent = 0;
   chemistry.ph = 7;
   chemistry.temperature = 25;
   chemistry.volume = 0;
   chemistry.acidRemaining = 0.3;
   chemistry.baseRemaining = 0.3;
-  chemistry.message = 'The flask is empty. Add acid or base to begin.';
+  chemistry.precipitateRemaining = 0.3;
+  chemistry.gasRemaining = 0.3;
+  chemistry.isHeating = false;
+  chemistry.heatIntensity = 0;
+  chemistry.reactionComplete = false;
+  chemistry.message = 'The flask is empty. Add a reagent to begin.';
   chemistry.bubbles.forEach(b => scene.remove(b));
   chemistry.precipitate.forEach(p => scene.remove(p));
   chemistry.droplets.forEach(d => scene.remove(d));
+  chemistry.gasParticles.forEach(g => scene.remove(g));
   chemistry.bubbles = [];
   chemistry.precipitate = [];
   chemistry.droplets = [];
+  chemistry.gasParticles = [];
   updateChemistryLiquid(chemistryState().color, chemistry.volume);
+  updateChemistryUI();
+}
+
+function toggleHeating() {
+  chemistry.isHeating = !chemistry.isHeating;
+  chemistry.message = chemistry.isHeating ? 'Heating on. Temperature will rise gradually.' : 'Heating off. Temperature will cool down.';
+  const heatBtn = document.querySelector('#toggle-heat');
+  if (heatBtn) {
+    heatBtn.classList.toggle('active', chemistry.isHeating);
+  }
   updateChemistryUI();
 }
 
@@ -1095,8 +1429,12 @@ function updateChemistryUI() {
   const phMarker = document.querySelector('#chem-ph-marker');
   const concentrationValue = document.querySelector('#chem-concentration');
   const observation = document.querySelector('#chem-observation');
+  const temperatureValue = document.querySelector('#chem-temperature');
+  const reactionValue = document.querySelector('#chem-reaction');
   const acidRemaining = document.querySelector('#chem-acid-remaining');
   const baseRemaining = document.querySelector('#chem-base-remaining');
+  const precipitateRemaining = document.querySelector('#chem-precipitate-remaining');
+  const gasRemaining = document.querySelector('#chem-gas-remaining');
   if (phValue) phValue.textContent = state.ph === null ? 'pH --' : `pH ${state.ph.toFixed(1)}`;
   if (phState) phState.textContent = state.label;
   if (volumeValue) volumeValue.textContent = `${Math.round(chemistry.volume * 100)} mL`;
@@ -1105,27 +1443,57 @@ function updateChemistryUI() {
     phMarker.hidden = state.ph === null;
     if (state.ph !== null) phMarker.style.left = `${((state.ph - 1) / 12) * 100}%`;
   }
+  if (temperatureValue) {
+    temperatureValue.textContent = `${state.temperature.toFixed(1)} °C`;
+    temperatureValue.style.color = state.temperature > 50 ? '#f59e0b' : state.temperature > 75 ? '#ef4444' : '#f8fafc';
+  }
+  if (reactionValue) {
+    reactionValue.textContent = state.reaction;
+    reactionValue.style.color = state.reaction === 'None' ? '#94a3b8' :
+                              state.reaction === 'Precipitation' ? '#d4a574' :
+                              state.reaction === 'Gas Evolution' ? '#4fd1c5' :
+                              state.reaction === 'Heating' ? '#f59e0b' : '#f8fafc';
+  }
   if (acidRemaining) acidRemaining.textContent = `${Math.round(chemistry.acidRemaining * 100)} mL left`;
   if (baseRemaining) baseRemaining.textContent = `${Math.round(chemistry.baseRemaining * 100)} mL left`;
+  if (precipitateRemaining) precipitateRemaining.textContent = `${Math.round(chemistry.precipitateRemaining * 100)} mL left`;
+  if (gasRemaining) gasRemaining.textContent = `${Math.round(chemistry.gasRemaining * 100)} mL left`;
   if (observation) observation.textContent = chemistry.message;
 }
 
 function showChemistryControls() {
   experimentControls.innerHTML = `
-    <div class="control-title">Add a small amount</div>
+    <div class="control-title">Chemistry Experiments</div>
+    <div class="chemistry-section-header">Reagents</div>
     <div class="chemistry-dose-controls">
       <button id="add-acid" class="control-button acid-dose"><span>Add Acid</span><small id="chem-acid-remaining">30 mL left</small></button>
       <button id="add-base" class="control-button base-dose"><span>Add Base</span><small id="chem-base-remaining">30 mL left</small></button>
+      <button id="add-precipitate" class="control-button precipitate-dose"><span>Add Precipitate</span><small id="chem-precipitate-remaining">30 mL left</small></button>
+      <button id="add-gas" class="control-button gas-dose"><span>Add Gas Reagent</span><small id="chem-gas-remaining">30 mL left</small></button>
     </div>
-    <div class="measurement-grid"><div><span>pH</span><strong id="chem-ph">pH --</strong><small id="chem-state">Empty</small></div><div><span>Solution</span><strong id="chem-volume">0 mL</strong></div></div>
-    <div class="chem-mixture-reading"><span>Leftover acid/base</span><strong id="chem-concentration">No solution</strong></div>
+    <div class="chemistry-section-header">Conditions</div>
+    <div class="chemistry-heating-controls">
+      <button id="toggle-heat" class="control-button heat-toggle"><span>Toggle Heating</span><small>Temperature control</small></button>
+    </div>
+    <div class="chemistry-section-header">Measurements</div>
+    <div class="measurement-grid">
+      <div><span>pH</span><strong id="chem-ph">pH --</strong><small id="chem-state">Empty</small></div>
+      <div><span>Solution</span><strong id="chem-volume">0 mL</strong></div>
+      <div><span>Temperature</span><strong id="chem-temperature">25.0 °C</strong></div>
+      <div><span>Reaction</span><strong id="chem-reaction">None</strong></div>
+    </div>
+    <div class="chem-mixture-reading"><span>Concentration</span><strong id="chem-concentration">No solution</strong></div>
+    <div class="chemistry-section-header">pH Scale</div>
     <div class="ph-scale" aria-label="pH scale from acidic to basic"><div class="ph-scale-bar"><span id="chem-ph-marker"></span></div><div class="ph-scale-labels"><span>Acidic</span><span>7 is neutral</span><span>Basic</span></div></div>
-    <div class="drag-status" id="chem-observation">The flask is empty. Add acid or base to begin.</div>
-    <div class="model-note">Acid lowers pH. Base raises pH. Try adding one of each.</div>
+    <div class="drag-status" id="chem-observation">The flask is empty. Add a reagent to begin.</div>
+    <div class="model-note">Mix reagents to observe different reaction types: acid-base, precipitation, gas evolution, and heating effects.</div>
     <button id="reset-chem" class="control-button reset-experiment">Reset experiment</button>`;
 
   document.querySelector('#add-acid').addEventListener('click', () => applyChemistryAction('acid'));
   document.querySelector('#add-base').addEventListener('click', () => applyChemistryAction('base'));
+  document.querySelector('#add-precipitate').addEventListener('click', () => applyChemistryAction('precipitate'));
+  document.querySelector('#add-gas').addEventListener('click', () => applyChemistryAction('gas'));
+  document.querySelector('#toggle-heat').addEventListener('click', toggleHeating);
   document.querySelector('#reset-chem').addEventListener('click', resetChemistry);
   updateChemistryUI();
 }
@@ -1139,6 +1507,20 @@ async function setupChemistry() {
   scene.add(chemistry.acidBottle);
   chemistry.baseBottle = createBaseBottle();
   scene.add(chemistry.baseBottle);
+  chemistry.precipitateBottle = createPrecipitateBottle();
+  scene.add(chemistry.precipitateBottle);
+  chemistry.gasBottle = createGasBottle();
+  scene.add(chemistry.gasBottle);
+  chemistry.bunsenBurner = createBunsenBurner();
+  scene.add(chemistry.bunsenBurner);
+  chemistry.thermometer = createThermometer();
+  scene.add(chemistry.thermometer);
+  chemistry.dropper = createDropper();
+  scene.add(chemistry.dropper);
+  chemistry.crucible = createCrucible();
+  scene.add(chemistry.crucible);
+  chemistry.petriDish = createPetriDish();
+  scene.add(chemistry.petriDish);
   resetChemistry();
   showChemistryControls();
 }
@@ -1147,7 +1529,7 @@ async function activateChemistry() {
   setCircuitCamera(false);
   clearHooke();
   await setupChemistry();
-  instructions.innerHTML = `<h2>Acid + Base</h2><p>See how two liquids change a solution.</p><ol><li>The flask starts empty. Choose <strong>Add Acid</strong> or <strong>Add Base</strong> to add 5 mL.</li><li>Acid makes pH go down. Base makes pH go up.</li><li>There is 30 mL of each liquid. Empty both bottles to fill the 60 mL flask.</li><li>pH 7 is neutral. Add the other liquid and watch pH move back toward 7.</li></ol><p class="model-note">Both stocks are 0.10 M. Adding more of the same keeps concentration steady; mixing acid and base changes the leftover concentration.</p>`;
+  instructions.innerHTML = `<h2>Chemistry Reactions</h2><p>Explore different types of chemical reactions with visual feedback.</p><ol><li>The flask starts empty. Choose any reagent to add 5 mL.</li><li><strong>Acid/Base:</strong> Mix acids and bases to see pH changes and color shifts.</li><li><strong>Precipitation:</strong> Add precipitate reagent to see solid particles form at the bottom.</li><li><strong>Gas Evolution:</strong> Add gas reagent to see bubbles rise from the solution.</li><li><strong>Heating:</strong> Toggle heating to raise temperature and observe increased bubble formation.</li><li>Use the thermometer to monitor temperature changes in real-time.</li></ol><p class="model-note">Combine different reagents to observe multiple reaction types simultaneously. The color and particle effects provide visual feedback for each reaction type.</p>`;
 }
 
 
@@ -1921,6 +2303,8 @@ renderer.domElement.addEventListener('pointerdown', event => {
   if (chemistry.active) {
     if (chemistry.acidBottle) targets.push(chemistry.acidBottle);
     if (chemistry.baseBottle) targets.push(chemistry.baseBottle);
+    if (chemistry.precipitateBottle) targets.push(chemistry.precipitateBottle);
+    if (chemistry.gasBottle) targets.push(chemistry.gasBottle);
   }
   const hits = raycaster.intersectObjects(targets, true);
   if (!hits.length) {
@@ -1976,8 +2360,11 @@ renderer.domElement.addEventListener('pointerdown', event => {
     removeSelectedBtn.disabled = true;
     return;
   }
-  if (chemistry.active && (selected.userData.isAcidBottle || selected.userData.isBaseBottle)) {
-    applyChemistryAction(selected.userData.isAcidBottle ? 'acid' : 'base');
+  if (chemistry.active && (selected.userData.isAcidBottle || selected.userData.isBaseBottle || selected.userData.isPrecipitateBottle || selected.userData.isGasBottle)) {
+    const type = selected.userData.isAcidBottle ? 'acid' :
+                selected.userData.isBaseBottle ? 'base' :
+                selected.userData.isPrecipitateBottle ? 'precipitate' : 'gas';
+    applyChemistryAction(type);
     selected = null;
     controls.enabled = true;
     return;
@@ -2148,14 +2535,14 @@ toggleRightBtn.addEventListener('click', () => {
 
 const experiments = {
   hooke: { title: "Hooke's Law", description: 'Investigate how a spring responds to increasing loads.', steps: ['Click Get 100 g mass.', 'Drag the mass to the spring hanging from the arm.', 'Drop it near the spring to attach it.', 'Add more masses and compare force with extension.'] },
-  'acid-base': { title: 'Acid / Base', description: 'Explore visible changes produced by simulated chemistry interactions.', steps: ['Choose Color change, Bubbles, or Precipitate.', 'Add the two reagents shown in the controls.', 'Watch the liquid, particles, and status change.', 'Reset and try another observation.'] },
+  chemistry: { title: 'Chemistry Reactions', description: 'Explore different types of chemical reactions with visual feedback.', steps: ['Choose a reagent to add to the flask.', 'Mix acids and bases to see pH changes.', 'Add precipitate reagent to see solid particles form.', 'Add gas reagent to see bubbles rise.', 'Toggle heating to raise temperature.'] },
   circuit: { title: 'Simple Circuit', description: 'Prototype workflow for an interactive electricity practical.', steps: ['Place the circuit components.', 'Connect the components.', 'Toggle the switch and observe the bulb.'] }
 };
 
 experimentSelect.addEventListener('change', async () => {
   const id = experimentSelect.value;
   if (id === 'hooke') { await activateHooke(); return; }
-  if (id === 'acid-base') { await activateChemistry(); return; }
+  if (id === 'chemistry') { await activateChemistry(); return; }
   if (id === 'circuit') { await activateCircuit(); return; }
   clearHooke();
   clearChemistry();
@@ -2188,6 +2575,49 @@ function animate(time = 0) {
   chemistry.stirPhase = time * 0.001;
   if (chemistry.active) {
     if (chemistry.liquid) chemistry.liquid.material.color.lerp(chemistry.liquidTargetColor, 0.08);
+
+    // Animate precipitate particles
+    chemistry.precipitate.forEach(p => {
+      p.position.y -= p.userData.sink * deltaSeconds;
+      if (p.position.y < 0.52) p.position.y = 0.52;
+    });
+
+    // Animate gas particles
+    chemistry.gasParticles.forEach(g => {
+      g.position.y += g.userData.rise * deltaSeconds;
+      g.userData.wobble += deltaSeconds * 2;
+      g.position.x += Math.sin(g.userData.wobble) * 0.01;
+      g.position.z += Math.cos(g.userData.wobble) * 0.01;
+      g.material.opacity = Math.max(0, 0.6 - (g.position.y - 0.7) * 0.8);
+      if (g.position.y > 1.3) {
+        scene.remove(g);
+        const index = chemistry.gasParticles.indexOf(g);
+        if (index > -1) chemistry.gasParticles.splice(index, 1);
+      }
+    });
+
+    // Heating effect
+    if (chemistry.isHeating) {
+      chemistry.temperature = Math.min(100, chemistry.temperature + deltaSeconds * 8);
+      chemistry.heatIntensity = THREE.MathUtils.lerp(chemistry.heatIntensity, 1, 0.05);
+    } else {
+      chemistry.temperature = Math.max(25, chemistry.temperature - deltaSeconds * 3);
+      chemistry.heatIntensity = THREE.MathUtils.lerp(chemistry.heatIntensity, 0, 0.03);
+    }
+
+    // Spawn gas bubbles when heating
+    if (chemistry.isHeating && chemistry.volume > 0 && Math.random() < 0.3) {
+      spawnBubble();
+    }
+
+    // Update thermometer
+    if (chemistry.thermometer) {
+      const tempHeight = (chemistry.temperature - 25) / 75 * 0.4;
+      chemistry.thermometer.children[2].scale.y = 0.5 + tempHeight;
+      chemistry.thermometer.children[2].position.y = 0.25 + tempHeight / 2;
+    }
+
+    updateChemistryUI();
   }
   if (circuit.active) {
     const bulb = circuitComponent('bulb');

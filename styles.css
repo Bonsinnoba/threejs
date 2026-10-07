@@ -257,6 +257,52 @@
   background: #3d537c;
 }
 
+.precipitate-dose {
+  border-color: #d4a574;
+  background: #6b5a4a;
+}
+
+.precipitate-dose:hover {
+  background: #8a7663;
+}
+
+.gas-dose {
+  border-color: #4fd1c5;
+  background: #2d5a5a;
+}
+
+.gas-dose:hover {
+  background: #3d7a7a;
+}
+
+.chemistry-heating-controls {
+  margin-bottom: 8px;
+}
+
+.heat-toggle {
+  width: 100%;
+  border-color: #f59e0b;
+  background: #5a4a2d;
+}
+
+.heat-toggle:hover {
+  background: #7a6a4d;
+}
+
+.heat-toggle.active {
+  background: #d97706;
+  border-color: #fbbf24;
+}
+
+.chemistry-section-header {
+  margin: 12px 0 6px;
+  color: #94a3b8;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
 .measurement-grid #chem-state {
   margin-top: 3px;
   color: #d8e2e8;
