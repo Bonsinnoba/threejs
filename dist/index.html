@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Virtual Laboratory</title>
+  <script type="module" crossorigin src="/assets/lab-Dmy1Mgbu.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/lab-DlLWAsG_.css">
+</head>
+<body>
+<div class="app">
+<aside class="sidebar" id="left-sidebar">
+<button class="sidebar-toggle" id="toggle-left-sidebar" title="Toggle sidebar">◀</button>
+<div class="sidebar-content">
+<div class="brand"><h1>Virtual Laboratory</h1><p>Three.js research prototype</p></div>
+<div class="section-title">Equipment</div>
+<label class="equipment-search">
+  <span aria-hidden="true">⌕</span>
+  <input id="equipment-search" type="search" placeholder="Search equipment" autocomplete="off">
+</label>
+<div class="equipment-grid" aria-label="Equipment palette">
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Beaker. Click to add or drag to workspace." draggable="true" data-equipment="beaker">
+    <span class="equipment-visual visual-beaker" aria-hidden="true"></span>
+    <span class="equipment-card-label">Beaker</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Beaker" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Flask. Click to add or drag to workspace." draggable="true" data-equipment="flask" data-preview-model="flask">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Flask</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Flask" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Test tube. Click to add or drag to workspace." draggable="true" data-equipment="test-tube">
+    <span class="equipment-visual visual-test-tube" aria-hidden="true"></span>
+    <span class="equipment-card-label">Test tube</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Test tube" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Ruler. Click to add or drag to workspace." draggable="true" data-equipment="ruler">
+    <span class="equipment-visual visual-ruler" aria-hidden="true"></span>
+    <span class="equipment-card-label">Ruler</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Ruler" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Bunsen burner. Click to add or drag to workspace." draggable="true" data-equipment="bunsen-burner" data-preview-model="bunsen-burner">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Bunsen burner</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Bunsen burner" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Rack. Click to add or drag to workspace." draggable="true" data-equipment="test-tube-rack" data-preview-model="test-tube-rack">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Rack</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Rack" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Tripod stand. Click to add or drag to workspace." draggable="true" data-equipment="tripod-stand" data-preview-model="tripod-stand">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Tripod stand</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Tripod stand" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Funnel. Click to add or drag to workspace." draggable="true" data-equipment="funnel" data-preview-model="funnel">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Funnel</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Funnel" hidden>&times;</button>
+  </div>
+</div>
+<p class="equipment-empty" hidden>No equipment found.</p>
+<a class="technology-link" href="./technology.html">
+  <span class="technology-mark" aria-hidden="true">i</span>
+  <span class="technology-link-copy"><strong>Technology &amp; assets</strong><small>Stack, models, licenses</small></span>
+  <span class="technology-link-arrow" aria-hidden="true">&rarr;</span>
+</a>
+<div class="status"><strong>Prototype status</strong><br>Equipment can be added and moved around the 3D bench. Circuit components can also be dragged into position.<br><br><strong>Model attribution</strong><br>Erlenmeyer flask by Poly by Google [CC-BY] via Poly Pizza. Additional lab equipment models from virtual labs collection.</div>
+</div>
+</aside>
+<main class="lab"><canvas id="lab-canvas"></canvas><div class="hint">Drag equipment. Use the mouse to orbit the camera.</div></main>
+<aside class="sidebar right" id="right-sidebar">
+<button class="sidebar-toggle" id="toggle-right-sidebar" title="Toggle sidebar">▶</button>
+<div class="sidebar-scroll-wrapper">
+<div class="sidebar-content">
+<div class="section-title">Experiments</div>
+<div class="experiment-dropdown">
+  <select id="experiment-select" class="experiment-select">
+    <option value="hooke" selected>Hooke's Law</option>
+    <option value="chemistry">Chemistry Reactions</option>
+    <option value="circuit">Simple Circuit</option>
+  </select>
+</div>
+<div id="instructions" class="instructions"></div>
+<div id="experiment-controls" class="experiment-controls"></div>
+<button id="reset" class="reset">Reset laboratory</button>
+</div>
+</div>
+</aside>
+</div>
+</body>
+</html>

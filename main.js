@@ -134,6 +134,7 @@ scene.add(grid);
 
 const equipment = [];
 let selected = null;
+let selectedEquipmentForRemoval = null;
 let selectedCircuitComponent = null;
 let flaskModel = null;
 let flaskLoadPromise = null;
@@ -141,14 +142,46 @@ let bunsenBurnerModel = null;
 let testTubeRackModel = null;
 let tripodStandModel = null;
 let funnelModel = null;
+const previewModels = {
+  flask: './models/erlenmeyer-flask.glb',
+  'bunsen-burner': './virtual labs/bunsen_burner.glb',
+  'test-tube-rack': './virtual labs/test_tube_rack.glb',
+  'tripod-stand': './virtual labs/tripod_stand.glb',
+  funnel: './virtual labs/cc0_-_funnel_3.glb'
+};
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.0);
 const dragPoint = new THREE.Vector3();
-const equipmentSelect = document.getElementById('equipment-select');
-const addEquipmentBtn = document.getElementById('add-equipment');
-const removeSelectedBtn = document.getElementById('remove-selected');
-const clearAllBtn = document.getElementById('clear-all');
+
+function updateEquipmentCardSelection() {
+  document.querySelectorAll('.equipment-card').forEach(card => {
+    const isSelected = selectedEquipmentForRemoval &&
+      selectedEquipmentForRemoval.userData.equipmentType === card.dataset.equipment &&
+      equipment.includes(selectedEquipmentForRemoval);
+    card.classList.toggle('is-selected', Boolean(isSelected));
+    card.setAttribute('aria-label', `${card.querySelector('.equipment-card-label').textContent}. ${isSelected ? 'Selected on workspace.' : 'Click to add or drag to workspace.'}`);
+    card.querySelector('.equipment-remove').hidden = !isSelected;
+  });
+}
+
+function selectEquipmentForRemoval(object) {
+  selectedEquipmentForRemoval = object && equipment.includes(object) ? object : null;
+  updateEquipmentCardSelection();
+}
+
+function removeEquipmentObject(object) {
+  const index = equipment.indexOf(object);
+  if (index < 0) return;
+
+  scene.remove(object);
+  equipment.splice(index, 1);
+  if (selected === object) selected = null;
+  const nextSelection = selectedEquipmentForRemoval === object
+    ? [...equipment].reverse().find(item => item.userData.equipmentType === object.userData.equipmentType) ?? null
+    : selectedEquipmentForRemoval;
+  selectEquipmentForRemoval(nextSelection);
+}
 
 function addToEquipment(group, type) {
   group.userData.equipmentType = type;
@@ -323,6 +356,7 @@ async function addFlask() {
   flask.position.set(-3 + (index % 3) * 2.5, 1.0, -1 + Math.floor(index / 3) * 1.7);
   scene.add(flask);
   equipment.push(flask);
+  selectEquipmentForRemoval(flask);
 }
 
 function makeEquipment(type) {
@@ -414,6 +448,7 @@ async function addRealEquipment(type) {
     equipmentModel.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
     scene.add(equipmentModel);
     equipment.push(equipmentModel);
+    selectEquipmentForRemoval(equipmentModel);
   } else {
     // Fallback to abstract equipment
     addEquipment(type);
@@ -431,6 +466,113 @@ function addEquipment(type) {
   object.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
   scene.add(object);
   equipment.push(object);
+  selectEquipmentForRemoval(object);
+}
+
+function setupEquipmentPreview(card) {
+  const type = card.dataset.equipment;
+  const modelPath = previewModels[type];
+  const previewHost = card.querySelector('.equipment-preview');
+  if (!previewHost || !modelPath) return;
+
+  const canvas = document.createElement('canvas');
+  previewHost.appendChild(canvas);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  camera.position.set(0, 0.9, 2.8);
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setSize(previewHost.clientWidth, previewHost.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  const ambient = new THREE.HemisphereLight(0xffffff, 0x364152, 1.8);
+  scene.add(ambient);
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  keyLight.position.set(2, 3, 3);
+  scene.add(keyLight);
+
+  loadModel(modelPath)
+    .then(asset => {
+      const model = cloneModel(asset);
+      normalizeModel(model, 1.25);
+      setupModelShadows(model);
+      model.rotation.y = -0.8;
+      scene.add(model);
+      renderer.render(scene, camera);
+    })
+    .catch(error => {
+      console.error(`Could not load equipment preview for ${type}:`, error);
+    });
+
+  const resizeObserver = new ResizeObserver(() => {
+    const width = previewHost.clientWidth || 64;
+    const height = previewHost.clientHeight || 72;
+    renderer.setSize(width, height);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+  });
+  resizeObserver.observe(previewHost);
+}
+
+function getBenchDropPoint(event) {
+  const rect = lab.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hitPoint = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(dragPlane, hitPoint)) {
+    return null;
+  }
+  return hitPoint;
+}
+
+async function addEquipmentAtWorkbenchLocation(type, x, z) {
+  if (type === 'flask') {
+    const model = await loadRealFlask();
+    if (model) {
+      const flask = cloneModel(model);
+      addToEquipment(flask, 'flask');
+      flask.position.set(x, 1.0, z);
+      scene.add(flask);
+      equipment.push(flask);
+      selectEquipmentForRemoval(flask);
+      return;
+    }
+  }
+
+  if (['bunsen-burner', 'test-tube-rack', 'tripod-stand', 'funnel'].includes(type)) {
+    const model = await (type === 'bunsen-burner'
+      ? loadBunsenBurner()
+      : type === 'test-tube-rack'
+        ? loadTestTubeRack()
+        : type === 'tripod-stand'
+          ? loadTripodStand()
+          : loadFunnel());
+
+    if (model) {
+      const equipmentModel = cloneModel(model);
+      addToEquipment(equipmentModel, type);
+      let yPos = 1.0;
+      if (type === 'tripod-stand') yPos = 0.5;
+      if (type === 'test-tube-rack') yPos = 0.5;
+      if (type === 'funnel') yPos = 1.2;
+      equipmentModel.position.set(x, yPos, z);
+      scene.add(equipmentModel);
+      equipment.push(equipmentModel);
+      selectEquipmentForRemoval(equipmentModel);
+      return;
+    }
+  }
+
+  const object = makeEquipment(type);
+  const yPos = type === 'ruler' ? 1.0 : 1.2;
+  object.position.set(x, yPos, z);
+  scene.add(object);
+  equipment.push(object);
+  selectEquipmentForRemoval(object);
 }
 
 // ---------------- Hooke's Law experiment ----------------
@@ -2309,7 +2451,7 @@ renderer.domElement.addEventListener('pointerdown', event => {
   const hits = raycaster.intersectObjects(targets, true);
   if (!hits.length) {
     selected = null;
-    removeSelectedBtn.disabled = true;
+    selectEquipmentForRemoval(null);
     return;
   }
   const terminalHit = circuit.active && circuit.connectionMode
@@ -2318,6 +2460,7 @@ renderer.domElement.addEventListener('pointerdown', event => {
   const selectionHit = terminalHit ?? hits[0];
   selected = selectionHit.object;
   while (selected.parent && !selected.userData.equipmentType && !selected.userData.isHookeMass && !selected.userData.isCircuitComponent && !selected.userData.isAcidBottle && !selected.userData.isBaseBottle) selected = selected.parent;
+  selectEquipmentForRemoval(equipment.includes(selected) ? selected : null);
   if (selected.userData.isCircuitComponent) selectedCircuitComponent = selected;
 
   // Circuit connection mode
@@ -2350,14 +2493,12 @@ renderer.domElement.addEventListener('pointerdown', event => {
       updateCircuitUI();
     }
     selected = null;
-    removeSelectedBtn.disabled = true;
     return;
   }
 
   if (selected.userData.isCircuitComponent && selected.userData.circuitType === 'switch') {
     toggleCircuitSwitch();
     selected = null;
-    removeSelectedBtn.disabled = true;
     return;
   }
   if (chemistry.active && (selected.userData.isAcidBottle || selected.userData.isBaseBottle || selected.userData.isPrecipitateBottle || selected.userData.isGasBottle)) {
@@ -2368,9 +2509,6 @@ renderer.domElement.addEventListener('pointerdown', event => {
     selected = null;
     controls.enabled = true;
     return;
-  }
-  if (selected.userData.equipmentType) {
-    removeSelectedBtn.disabled = false;
   }
   controls.enabled = false;
 });
@@ -2450,46 +2588,79 @@ function handleResize() {
 
 window.addEventListener('resize', handleResize);
 
-document.querySelectorAll('[data-equipment]').forEach(button => {
-  button.addEventListener('click', async () => {
-    const type = button.dataset.equipment;
-    if (type === 'flask') await addFlask();
-    else if (['bunsen-burner', 'test-tube-rack', 'tripod-stand', 'funnel'].includes(type)) {
-      await addRealEquipment(type);
-    }
-    else addEquipment(type);
+document.querySelectorAll('.equipment-card').forEach(card => {
+  setupEquipmentPreview(card);
+
+  card.addEventListener('dragstart', event => {
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('text/plain', card.dataset.equipment);
+    card.classList.add('dragging');
+  });
+
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+  });
+
+  card.addEventListener('click', async event => {
+    if (event.target.closest('.equipment-remove')) return;
+    const type = card.dataset.equipment;
+    const index = equipment.length;
+    const x = -3 + (index % 3) * 2.5;
+    const z = -1 + Math.floor(index / 3) * 1.7;
+    await addEquipmentAtWorkbenchLocation(type, x, z);
+  });
+
+  card.addEventListener('keydown', event => {
+    if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    card.click();
+  });
+
+  card.querySelector('.equipment-remove').addEventListener('click', event => {
+    event.stopPropagation();
+    const type = card.dataset.equipment;
+    const object = selectedEquipmentForRemoval?.userData.equipmentType === type
+      ? selectedEquipmentForRemoval
+      : [...equipment].reverse().find(item => item.userData.equipmentType === type);
+    if (object) removeEquipmentObject(object);
   });
 });
 
-// New equipment dropdown and buttons
-addEquipmentBtn.addEventListener('click', async () => {
-  const type = equipmentSelect.value;
+const equipmentSearch = document.getElementById('equipment-search');
+const equipmentEmptyState = document.querySelector('.equipment-empty');
+
+equipmentSearch.addEventListener('input', () => {
+  const query = equipmentSearch.value.trim().toLowerCase();
+  let visibleCount = 0;
+
+  document.querySelectorAll('.equipment-card').forEach(card => {
+    const label = card.querySelector('.equipment-card-label').textContent.toLowerCase();
+    const type = card.dataset.equipment.replaceAll('-', ' ').toLowerCase();
+    const matches = `${label} ${type}`.includes(query);
+    card.hidden = !matches;
+    if (matches) visibleCount += 1;
+  });
+
+  equipmentEmptyState.hidden = visibleCount > 0;
+});
+
+lab.addEventListener('dragover', event => {
+  if (!event.dataTransfer || !event.dataTransfer.types.includes('text/plain')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+});
+
+lab.addEventListener('drop', async event => {
+  const type = event.dataTransfer?.getData('text/plain');
   if (!type) return;
+  event.preventDefault();
 
-  if (type === 'flask') await addFlask();
-  else if (['bunsen-burner', 'test-tube-rack', 'tripod-stand', 'funnel'].includes(type)) {
-    await addRealEquipment(type);
-  }
-  else addEquipment(type);
+  const point = getBenchDropPoint(event);
+  if (!point) return;
 
-  equipmentSelect.value = '';
-});
-
-removeSelectedBtn.addEventListener('click', () => {
-  if (selected && equipment.includes(selected)) {
-    scene.remove(selected);
-    const index = equipment.indexOf(selected);
-    if (index > -1) equipment.splice(index, 1);
-    selected = null;
-    removeSelectedBtn.disabled = true;
-  }
-});
-
-clearAllBtn.addEventListener('click', () => {
-  equipment.forEach(object => scene.remove(object));
-  equipment.length = 0;
-  selected = null;
-  removeSelectedBtn.disabled = true;
+  const x = Math.min(4.2, Math.max(-4.2, point.x));
+  const z = Math.min(2.9, Math.max(-2.9, point.z));
+  await addEquipmentAtWorkbenchLocation(type, x, z);
 });
 
 // Sidebar toggle functionality
@@ -2556,7 +2727,7 @@ document.querySelector('#reset').addEventListener('click', async () => {
   equipment.length = 0;
   clearCircuit();
   selected = null;
-  removeSelectedBtn.disabled = true;
+  selectEquipmentForRemoval(null);
   experimentSelect.value = 'hooke';
   await activateHooke();
 });

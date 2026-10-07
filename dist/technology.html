@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Technology, physics, model sources and licensing notes for the Virtual Laboratory prototype.">
+  <title>Technology &amp; Assets | Virtual Laboratory</title>
+  <link rel="stylesheet" crossorigin href="/assets/technology-Bl_rbPNJ.css">
+</head>
+<body>
+  <header class="tech-topbar">
+    <a class="tech-brand" href="./index.html">Virtual Laboratory</a>
+    <a class="tech-back" href="./index.html">&larr; Back to lab</a>
+  </header>
+
+  <main class="tech-main">
+    <p class="tech-kicker">PROJECT NOTES</p>
+    <h1>Technology &amp; 3D assets</h1>
+    <p class="tech-lede">A short guide to what powers this prototype, where the physics is used, and how its 3D assets can be sourced or created responsibly.</p>
+
+    <section class="tech-section" aria-labelledby="prototype-heading">
+      <h2 id="prototype-heading">Current prototype boundary</h2>
+      <div class="tech-caution"><strong>No dedicated backend yet.</strong> The current app does not have a server-side service for running physics, chemistry, or experiment rules. The experiment scenes and their behavior are pre-built in the browser, with selected interactions enabled for demonstration.</div>
+      <p>Three.js renders and handles interaction in the browser. Cannon-es also runs client-side, and is currently connected to the Hooke's Law spring and load. Chemistry and circuit outcomes use lightweight client-side rules; they are not general-purpose or server-managed simulation systems.</p>
+    </section>
+
+    <section class="tech-section" aria-labelledby="stack-heading">
+      <h2 id="stack-heading">The technology</h2>
+      <div class="tech-columns">
+        <article>
+          <div class="tech-label">RENDERING &amp; INTERACTION</div>
+          <h3>Three.js <span>0.180.0</span></h3>
+          <p>Builds the 3D scene in the browser: camera, lighting, bench, lab equipment, materials, shadows, and animation.</p>
+          <ul>
+            <li><code>GLTFLoader</code> loads equipment models in GLB/glTF format.</li>
+            <li><code>OrbitControls</code> lets students inspect the bench from different angles.</li>
+            <li>Raycasting supports selecting, moving, and connecting objects.</li>
+          </ul>
+        </article>
+        <article>
+          <div class="tech-label">MECHANICS</div>
+          <h3>cannon-es <span>0.20.0</span></h3>
+          <p>The physics engine is currently used in the Hooke's Law experiment to simulate a hanging load on a spring.</p>
+          <ul>
+            <li>A dynamic body represents the load; a fixed body anchors the spring.</li>
+            <li>Gravity, spring stiffness, and damping drive the load's motion and settling.</li>
+            <li>The physics body is synchronized to a Three.js mesh for display.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="tech-note"><strong>Scope note:</strong> Chemistry pH/color changes and circuit current/faults are currently simplified, pre-built teaching demonstrations. They do not use Cannon-es and are not validated chemistry or circuit solvers.</div>
+    </section>
+
+    <section class="tech-section" aria-labelledby="physics-heading">
+      <h2 id="physics-heading">Where the physics runs</h2>
+      <p><strong>Hooke's Law:</strong> adding a 100 g mass updates the Cannon-es load. The world advances at a fixed 1/60-second step with gravity set to 9.81 m/s<sup>2</sup>; spring force and damping are applied to the load. The interface also reports force and extension using <code>F = mg</code> and <code>x = F/k</code>.</p>
+      <p>The current spring constant is 19.6 N/m. This makes the demo useful for showing how a 3D scene, user actions, measurements, and a physics simulation can work together.</p>
+      <p class="tech-source">Implementation: <code>physics.js</code> creates the Cannon-es world and spring system; <code>main.js</code> connects it to the Hooke's Law controls and visible model.</p>
+    </section>
+
+    <section class="tech-section" aria-labelledby="assets-heading">
+      <h2 id="assets-heading">Models &amp; licensing</h2>
+      <p>Equipment is stored as GLB files in <code>virtual labs/</code>. Models are loaded into Three.js, normalized for the scene, and given shadows where appropriate.</p>
+      <div class="tech-attribution">
+        <div class="tech-label">LICENSE VERIFIED IN THIS PROJECT</div>
+        <p><strong>Erlenmeyer flask by Poly by Google</strong>, via Poly Pizza. Licensed under <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">Creative Commons Attribution 3.0 (CC BY 3.0)</a>.</p>
+        <p class="tech-source">The project attribution record is <code>virtual labs/lincences.txt</code>.</p>
+      </div>
+      <div class="tech-caution"><strong>Before sharing or shipping:</strong> the attribution file currently documents the flask above, but does not list a creator, source URL, and license for every other bundled GLB. Verify each model's original listing and license before redistribution; do not assume that a downloadable model is cleared for commercial use.</div>
+      <h3>Where to find models</h3>
+      <ul class="tech-link-list">
+        <li><a href="https://poly.pizza/" target="_blank" rel="noreferrer">Poly Pizza</a> — browse low-poly models; check the individual model page for its license and attribution requirements.</li>
+        <li><a href="https://sketchfab.com/3d-models?features=downloadable" target="_blank" rel="noreferrer">Sketchfab downloadable models</a> — use the license filter and review the specific model's terms before use.</li>
+      </ul>
+      <h3>Making or preparing your own</h3>
+      <p><a href="https://www.blender.org/" target="_blank" rel="noreferrer">Blender</a> can model, simplify, UV unwrap, texture, and prepare lab equipment. Its glTF 2.0 exporter can produce GLB assets for this project. The Blender software license does not grant rights to third-party textures or models used in an export; track those separately.</p>
+      <p>For each asset, keep a small record of its name, creator, original URL, license, required credit, and any changes. Keep the license compatible with the intended workplace or commercial use.</p>
+    </section>
+
+    <section class="tech-section" aria-labelledby="uses-heading">
+      <h2 id="uses-heading">Potential use cases</h2>
+      <ul class="tech-use-list">
+        <li><strong>Physics:</strong> repeatable spring and load experiments with measurable motion.</li>
+        <li><strong>Chemistry:</strong> guided pH and indicator demonstrations using safe, repeatable visual feedback.</li>
+        <li><strong>Electrical basics:</strong> assemble components, trace connections, and discuss current and fault scenarios.</li>
+        <li><strong>Training:</strong> practice equipment handling and procedures before using a physical lab setup.</li>
+      </ul>
+      <p class="tech-source">The chemistry and electrical examples in this prototype are conceptual demonstrations. Real curriculum or safety-critical use should be reviewed by subject-matter experts.</p>
+    </section>
+
+    <footer class="tech-footer">
+      <span>Virtual Laboratory · Prototype documentation</span>
+      <a href="./index.html">Return to the lab &rarr;</a>
+    </footer>
+  </main>
+</body>
+</html>

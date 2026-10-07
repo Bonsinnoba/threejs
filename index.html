@@ -13,24 +13,53 @@
 <div class="sidebar-content">
 <div class="brand"><h1>Virtual Laboratory</h1><p>Three.js research prototype</p></div>
 <div class="section-title">Equipment</div>
-<div class="equipment-dropdown">
-  <select id="equipment-select" class="equipment-select">
-    <option value="">Select equipment...</option>
-    <option value="beaker">Beaker</option>
-    <option value="flask">Flask</option>
-    <option value="test-tube">Test Tube</option>
-    <option value="ruler">Ruler</option>
-    <option value="bunsen-burner">Bunsen Burner</option>
-    <option value="test-tube-rack">Test Tube Rack</option>
-    <option value="tripod-stand">Tripod Stand</option>
-    <option value="funnel">Funnel</option>
-  </select>
-  <button id="add-equipment" class="add-equipment-btn">Add</button>
+<label class="equipment-search">
+  <span aria-hidden="true">⌕</span>
+  <input id="equipment-search" type="search" placeholder="Search equipment" autocomplete="off">
+</label>
+<div class="equipment-grid" aria-label="Equipment palette">
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Beaker. Click to add or drag to workspace." draggable="true" data-equipment="beaker">
+    <span class="equipment-visual visual-beaker" aria-hidden="true"></span>
+    <span class="equipment-card-label">Beaker</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Beaker" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Flask. Click to add or drag to workspace." draggable="true" data-equipment="flask" data-preview-model="flask">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Flask</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Flask" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Test tube. Click to add or drag to workspace." draggable="true" data-equipment="test-tube">
+    <span class="equipment-visual visual-test-tube" aria-hidden="true"></span>
+    <span class="equipment-card-label">Test tube</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Test tube" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Ruler. Click to add or drag to workspace." draggable="true" data-equipment="ruler">
+    <span class="equipment-visual visual-ruler" aria-hidden="true"></span>
+    <span class="equipment-card-label">Ruler</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Ruler" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Bunsen burner. Click to add or drag to workspace." draggable="true" data-equipment="bunsen-burner" data-preview-model="bunsen-burner">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Bunsen burner</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Bunsen burner" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Rack. Click to add or drag to workspace." draggable="true" data-equipment="test-tube-rack" data-preview-model="test-tube-rack">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Rack</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Rack" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Tripod stand. Click to add or drag to workspace." draggable="true" data-equipment="tripod-stand" data-preview-model="tripod-stand">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Tripod stand</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Tripod stand" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Funnel. Click to add or drag to workspace." draggable="true" data-equipment="funnel" data-preview-model="funnel">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Funnel</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Funnel" hidden>&times;</button>
+  </div>
 </div>
-<div class="equipment-actions">
-  <button id="remove-selected" class="remove-btn" disabled>Remove Selected</button>
-  <button id="clear-all" class="clear-btn">Clear All</button>
-</div>
+<p class="equipment-empty" hidden>No equipment found.</p>
 <a class="technology-link" href="./technology.html">
   <span class="technology-mark" aria-hidden="true">i</span>
   <span class="technology-link-copy"><strong>Technology &amp; assets</strong><small>Stack, models, licenses</small></span>
