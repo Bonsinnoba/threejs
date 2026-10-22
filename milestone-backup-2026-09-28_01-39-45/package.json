@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "dev": "vite"
-  },
-  "dependencies": {
-    "cannon-es": "^0.20.0"
-  }
-}
