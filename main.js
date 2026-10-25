@@ -11,6 +11,10 @@ import {
   stepPhysics,
   syncMeshToBody
 } from './physics.js';
+import { setupGlassEnvironment, createGlassware, renderGlassPreview, isGlassType } from './glassware.js';
+import { createLabBench, BENCH } from './labBench.js';
+import { LabelLayer } from './labLabels.js';
+import { LabInventory } from './labInventory.js';
 
 const canvas = document.querySelector('#lab-canvas');
 const lab = document.querySelector('.lab');
@@ -24,10 +28,10 @@ const toggleRightBtn = document.getElementById('toggle-right-sidebar');
 const app = document.querySelector('.app');
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xdbe4e8);
+scene.background = new THREE.Color(0x56636b);
 
 const camera = new THREE.PerspectiveCamera(55, lab.clientWidth / lab.clientHeight, 0.1, 100);
-camera.position.set(5.5, 5.5, 7);
+camera.position.set(4, 6.5, 13.5);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -37,14 +41,19 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+setupGlassEnvironment(renderer, scene);
+
 // cannon-es owns the physical simulation; Three.js only visualizes it.
 const physicsWorld = createPhysicsWorld();
 const physicsSystems = [];
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 1.2, 0);
+const defaultTarget = new THREE.Vector3(0, 3, -3);
+controls.target.copy(defaultTarget);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI / 2.05;
+controls.minDistance = 3;
+controls.maxDistance = 24;
 const standardCameraPosition = camera.position.clone();
 const standardCameraUp = camera.up.clone();
 
@@ -56,81 +65,25 @@ function setCircuitCamera(active) {
     camera.up.copy(standardCameraUp);
     camera.position.copy(standardCameraPosition);
   }
-  controls.target.set(0, 1.2, 0);
+  controls.target.copy(active ? new THREE.Vector3(0, 1.2, 0) : defaultTarget);
   camera.lookAt(controls.target);
   controls.update();
 }
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x64748b, 2.2));
-const light = new THREE.DirectionalLight(0xffffff, 2.5);
-light.position.set(4, 8, 5);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x64748b, 1.3));
+const light = new THREE.DirectionalLight(0xffffff, 2.2);
+light.position.set(6, 22, 12);
 light.castShadow = true;
+light.shadow.mapSize.set(2048, 2048);
+Object.assign(light.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 70 });
+light.shadow.bias = -0.0005;
 scene.add(light);
 
-// Create a more realistic lab workbench
-const benchGroup = new THREE.Group();
-
-// Main tabletop
-const benchTop = new THREE.Mesh(
-  new THREE.BoxGeometry(12, 0.4, 8),
-  new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.6 })
-);
-benchTop.position.y = 1.0;
-benchTop.receiveShadow = true;
-benchTop.castShadow = true;
-benchGroup.add(benchTop);
-
-// Add wooden texture detail with slight variation
-const benchDetail = new THREE.Mesh(
-  new THREE.BoxGeometry(11.8, 0.35, 7.8),
-  new THREE.MeshStandardMaterial({ color: 0x7a6248, roughness: 0.7 })
-);
-benchDetail.position.y = 0.95;
-benchGroup.add(benchDetail);
-
-// Legs
-const legPositions = [
-  [-5.2, 0.5, -3.5],
-  [5.2, 0.5, -3.5],
-  [-5.2, 0.5, 3.5],
-  [5.2, 0.5, 3.5]
-];
-
-const legMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3728, roughness: 0.8 });
-legPositions.forEach(pos => {
-  const leg = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 1.0, 0.3),
-    legMaterial
-  );
-  leg.position.set(...pos);
-  leg.castShadow = true;
-  leg.receiveShadow = true;
-  benchGroup.add(leg);
-});
-
-// Bottom shelf
-const shelf = new THREE.Mesh(
-  new THREE.BoxGeometry(11, 0.15, 7),
-  new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.65 })
-);
-shelf.position.y = 0.4;
-shelf.receiveShadow = true;
-shelf.castShadow = true;
-benchGroup.add(shelf);
-
-scene.add(benchGroup);
-
-const wall = new THREE.Mesh(
-  new THREE.BoxGeometry(12, 5, 0.25),
-  new THREE.MeshStandardMaterial({ color: 0xf1f5f9 })
-);
-wall.position.set(0, 2.5, -4);
-wall.receiveShadow = true;
-scene.add(wall);
-
-const grid = new THREE.GridHelper(12, 24, 0x64748b, 0x94a3b8);
-grid.position.y = 0.42;
-scene.add(grid);
+// Create the new lab bench
+setupGlassEnvironment(renderer, scene);
+const labBench = createLabBench(scene);
+const labels = new LabelLayer(lab, camera, renderer);
+let inventory;
 
 const equipment = [];
 let selected = null;
@@ -151,7 +104,7 @@ const previewModels = {
 };
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.0);
+const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BENCH.topY);
 const dragPoint = new THREE.Vector3();
 
 function updateEquipmentCardSelection() {
@@ -353,7 +306,7 @@ async function addFlask() {
   const flask = model.clone(true);
   addToEquipment(flask, 'flask');
   const index = equipment.length;
-  flask.position.set(-3 + (index % 3) * 2.5, 1.0, -1 + Math.floor(index / 3) * 1.7);
+  flask.position.set(-3 + (index % 3) * 2.5, BENCH.topY, -1 + Math.floor(index / 3) * 1.7);
   scene.add(flask);
   equipment.push(flask);
   selectEquipmentForRemoval(flask);
@@ -361,6 +314,12 @@ async function addFlask() {
 
 function makeEquipment(type) {
   const group = new THREE.Group();
+
+  if (isGlassType(type)) {
+    const vessel = createGlassware(type);
+    vessel.setVolume(vessel.capacityMl * 0.4);
+    return vessel.group;
+  }
 
   if (type === 'beaker') {
     const body = new THREE.Mesh(
@@ -425,6 +384,18 @@ function makeEquipment(type) {
 }
 
 async function addRealEquipment(type) {
+  if (isGlassType(type)) {
+    const vessel = createGlassware(type);
+    vessel.setVolume(vessel.capacityMl * 0.4);
+    const index = equipment.length;
+    vessel.group.position.set(-3 + (index % 3) * 2.5, BENCH.topY, -1 + Math.floor(index / 3) * 1.7);
+    vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+    scene.add(vessel.group);
+    equipment.push(vessel.group);
+    selectEquipmentForRemoval(vessel.group);
+    return;
+  }
+
   let model = null;
 
   if (type === 'bunsen-burner') {
@@ -441,10 +412,10 @@ async function addRealEquipment(type) {
     const equipmentModel = cloneModel(model);
     addToEquipment(equipmentModel, type);
     const index = equipment.length;
-    let yPos = 1.0;
-    if (type === 'tripod-stand') yPos = 0.5;
-    if (type === 'test-tube-rack') yPos = 0.5;
-    if (type === 'funnel') yPos = 1.2;
+    let yPos = BENCH.topY;
+    if (type === 'tripod-stand') yPos = BENCH.topY - 0.5;
+    if (type === 'test-tube-rack') yPos = BENCH.topY - 0.5;
+    if (type === 'funnel') yPos = BENCH.topY + 0.2;
     equipmentModel.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
     scene.add(equipmentModel);
     equipment.push(equipmentModel);
@@ -456,13 +427,25 @@ async function addRealEquipment(type) {
 }
 
 function addEquipment(type) {
+  if (isGlassType(type)) {
+    const vessel = createGlassware(type);
+    vessel.setVolume(vessel.capacityMl * 0.4);
+    const index = equipment.length;
+    vessel.group.position.set(-3 + (index % 3) * 2.5, BENCH.topY, -1 + Math.floor(index / 3) * 1.7);
+    vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+    scene.add(vessel.group);
+    equipment.push(vessel.group);
+    selectEquipmentForRemoval(vessel.group);
+    return;
+  }
+
   const object = makeEquipment(type);
   const index = equipment.length;
-  let yPos = 1.2;
-  if (type === 'beaker') yPos = 1.0;
-  if (type === 'flask') yPos = 1.0;
-  if (type === 'test-tube') yPos = 1.0;
-  if (type === 'ruler') yPos = 1.0;
+  let yPos = BENCH.topY + 0.2;
+  if (type === 'beaker') yPos = BENCH.topY;
+  if (type === 'flask') yPos = BENCH.topY;
+  if (type === 'test-tube') yPos = BENCH.topY;
+  if (type === 'ruler') yPos = BENCH.topY;
   object.position.set(-3 + (index % 3) * 2.5, yPos, -1 + Math.floor(index / 3) * 1.7);
   scene.add(object);
   equipment.push(object);
@@ -471,6 +454,17 @@ function addEquipment(type) {
 
 function setupEquipmentPreview(card) {
   const type = card.dataset.equipment;
+  if (isGlassType(type)) {
+    const host = card.querySelector('.equipment-preview, .equipment-visual');
+    host.className = 'equipment-preview';
+    host.innerHTML = '';
+    const img = new Image();
+    img.src = renderGlassPreview(type);
+    img.alt = '';
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain';
+    host.appendChild(img);
+    return;
+  }
   const modelPath = previewModels[type];
   const previewHost = card.querySelector('.equipment-preview');
   if (!previewHost || !modelPath) return;
@@ -530,12 +524,23 @@ function getBenchDropPoint(event) {
 }
 
 async function addEquipmentAtWorkbenchLocation(type, x, z) {
+  if (isGlassType(type)) {
+    const vessel = createGlassware(type);
+    vessel.setVolume(vessel.capacityMl * 0.4);
+    vessel.group.position.set(x, BENCH.topY, z);
+    vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+    scene.add(vessel.group);
+    equipment.push(vessel.group);
+    selectEquipmentForRemoval(vessel.group);
+    return;
+  }
+
   if (type === 'flask') {
     const model = await loadRealFlask();
     if (model) {
       const flask = cloneModel(model);
       addToEquipment(flask, 'flask');
-      flask.position.set(x, 1.0, z);
+      flask.position.set(x, BENCH.topY, z);
       scene.add(flask);
       equipment.push(flask);
       selectEquipmentForRemoval(flask);
@@ -555,10 +560,10 @@ async function addEquipmentAtWorkbenchLocation(type, x, z) {
     if (model) {
       const equipmentModel = cloneModel(model);
       addToEquipment(equipmentModel, type);
-      let yPos = 1.0;
-      if (type === 'tripod-stand') yPos = 0.5;
-      if (type === 'test-tube-rack') yPos = 0.5;
-      if (type === 'funnel') yPos = 1.2;
+      let yPos = BENCH.topY;
+      if (type === 'tripod-stand') yPos = BENCH.topY - 0.5;
+      if (type === 'test-tube-rack') yPos = BENCH.topY - 0.5;
+      if (type === 'funnel') yPos = BENCH.topY + 0.2;
       equipmentModel.position.set(x, yPos, z);
       scene.add(equipmentModel);
       equipment.push(equipmentModel);
@@ -568,7 +573,7 @@ async function addEquipmentAtWorkbenchLocation(type, x, z) {
   }
 
   const object = makeEquipment(type);
-  const yPos = type === 'ruler' ? 1.0 : 1.2;
+  const yPos = type === 'ruler' ? BENCH.topY : BENCH.topY + 0.2;
   object.position.set(x, yPos, z);
   scene.add(object);
   equipment.push(object);
@@ -1088,7 +1093,7 @@ function createAcidBottle() {
   group.add(label);
 
   group.userData.isAcidBottle = true;
-  group.position.set(-2.5, 0.7, 0);
+  group.position.set(-2.5, 1.2, 0);
   setupModelShadows(group);
   return group;
 }
@@ -1124,7 +1129,7 @@ function createBaseBottle() {
   group.add(label);
 
   group.userData.isBaseBottle = true;
-  group.position.set(2.5, 0.7, 0);
+  group.position.set(2.5, 1.2, 0);
   setupModelShadows(group);
   return group;
 }
@@ -1160,7 +1165,7 @@ function createPrecipitateBottle() {
   group.add(label);
 
   group.userData.isPrecipitateBottle = true;
-  group.position.set(-3.5, 0.7, 0.5);
+  group.position.set(-3.5, 1.2, 0.5);
   setupModelShadows(group);
   return group;
 }
@@ -1196,7 +1201,7 @@ function createGasBottle() {
   group.add(label);
 
   group.userData.isGasBottle = true;
-  group.position.set(3.5, 0.7, 0.5);
+  group.position.set(3.5, 1.2, 0.5);
   setupModelShadows(group);
   return group;
 }
@@ -1225,7 +1230,7 @@ function createBunsenBurner() {
   group.add(collar);
 
   group.userData.isBunsenBurner = true;
-  group.position.set(0, 0.35, 1.2);
+  group.position.set(0, 1.2, 1.2);
   setupModelShadows(group);
   return group;
 }
@@ -1313,7 +1318,7 @@ function createCrucible() {
   group.add(base);
 
   group.userData.isCrucible = true;
-  group.position.set(1.5, 0.5, -0.5);
+  group.position.set(1.5, 1.2, -0.5);
   setupModelShadows(group);
   return group;
 }
@@ -1335,7 +1340,7 @@ function createPetriDish() {
   group.add(lid);
 
   group.userData.isPetriDish = true;
-  group.position.set(-1.5, 0.35, -0.5);
+  group.position.set(-1.5, 1.2, -0.5);
   setupModelShadows(group);
   return group;
 }
@@ -1717,6 +1722,12 @@ const circuit = {
   burnoutEffect: null,
   burnoutTime: 0
 };
+
+inventory = new LabInventory({
+  scene, camera, renderer, bench: labBench, labels,
+  setControlsEnabled: (v) => { controls.enabled = v && !circuit.connectionMode; },
+});
+inventory.stock();
 
 function clearCircuit() {
   circuit.components.forEach(c => scene.remove(c.group));
@@ -2728,6 +2739,7 @@ document.querySelector('#reset').addEventListener('click', async () => {
   clearCircuit();
   selected = null;
   selectEquipmentForRemoval(null);
+  inventory.reset();
   experimentSelect.value = 'hooke';
   await activateHooke();
 });
@@ -2740,6 +2752,7 @@ function animate(time = 0) {
   lastPhysicsTime = now;
 
   stepPhysics(physicsWorld, physicsSystems, deltaSeconds);
+  inventory.update(deltaSeconds);
   syncHookePhysics();
 
   controls.update();

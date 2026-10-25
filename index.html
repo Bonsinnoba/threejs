@@ -19,7 +19,7 @@
 </label>
 <div class="equipment-grid" aria-label="Equipment palette">
   <div class="equipment-card" role="group" tabindex="0" aria-label="Beaker. Click to add or drag to workspace." draggable="true" data-equipment="beaker">
-    <span class="equipment-visual visual-beaker" aria-hidden="true"></span>
+    <span class="equipment-preview" aria-hidden="true"></span>
     <span class="equipment-card-label">Beaker</span>
     <button class="equipment-remove" type="button" aria-label="Remove selected Beaker" hidden>&times;</button>
   </div>
@@ -29,9 +29,19 @@
     <button class="equipment-remove" type="button" aria-label="Remove selected Flask" hidden>&times;</button>
   </div>
   <div class="equipment-card" role="group" tabindex="0" aria-label="Test tube. Click to add or drag to workspace." draggable="true" data-equipment="test-tube">
-    <span class="equipment-visual visual-test-tube" aria-hidden="true"></span>
+    <span class="equipment-preview" aria-hidden="true"></span>
     <span class="equipment-card-label">Test tube</span>
     <button class="equipment-remove" type="button" aria-label="Remove selected Test tube" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Reagent bottle. Click to add or drag to workspace." draggable="true" data-equipment="reagent-bottle">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Reagent bottle</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Reagent bottle" hidden>&times;</button>
+  </div>
+  <div class="equipment-card" role="group" tabindex="0" aria-label="Round flask. Click to add or drag to workspace." draggable="true" data-equipment="round-flask">
+    <span class="equipment-preview" aria-hidden="true"></span>
+    <span class="equipment-card-label">Round flask</span>
+    <button class="equipment-remove" type="button" aria-label="Remove selected Round flask" hidden>&times;</button>
   </div>
   <div class="equipment-card" role="group" tabindex="0" aria-label="Ruler. Click to add or drag to workspace." draggable="true" data-equipment="ruler">
     <span class="equipment-visual visual-ruler" aria-hidden="true"></span>
@@ -68,7 +78,7 @@
 <div class="status"><strong>Prototype status</strong><br>Equipment can be added and moved around the 3D bench. Circuit components can also be dragged into position.<br><br><strong>Model attribution</strong><br>Erlenmeyer flask by Poly by Google [CC-BY] via Poly Pizza. Additional lab equipment models from virtual labs collection.</div>
 </div>
 </aside>
-<main class="lab"><canvas id="lab-canvas"></canvas><div class="hint">Drag equipment. Use the mouse to orbit the camera.</div></main>
+<main class="lab"><canvas id="lab-canvas"></canvas><div class="hint">Drag items from shelves and drawers. Click drawers and doors to open them.</div></main>
 <aside class="sidebar right" id="right-sidebar">
 <button class="sidebar-toggle" id="toggle-right-sidebar" title="Toggle sidebar">▶</button>
 <div class="sidebar-scroll-wrapper">

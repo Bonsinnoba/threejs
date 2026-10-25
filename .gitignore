@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+.vscode/
+*.log
+milestone-backup-*
+*.milestone-backup
+index.html.milestone1-backup
