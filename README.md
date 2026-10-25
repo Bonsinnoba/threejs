@@ -1,6 +1,6 @@
-# Virtual Laboratory — Refined Physics Integration
+# Virtual Laboratory — 3D Physics Lab Environment
 
-This milestone refines the Hooke's Law prototype with a real `cannon-es` spring simulation.
+A virtual laboratory with procedural glassware, lab inventory system, and physics-based experiments.
 
 ## Demonstration
 
