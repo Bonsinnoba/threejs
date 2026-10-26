@@ -2082,13 +2082,65 @@ function checkCircuitConnectivity() {
   const hasAllComponents = requiredTypes.every(type => circuit.components.some(component => component.type === type));
   const hasResistor = circuit.components.some(component => component.type === 'resistor');
   const battery = circuitComponent('battery');
-  const withoutResistor = circuitGraph('resistor');
-  const shorted = hasResistor && battery && circuitGraphHasCycle(withoutResistor, battery);
-  setCircuitShorted(Boolean(shorted));
+
+  // Enhanced short circuit detection
+  let shortCircuitReason = null;
+
+  // Check 0: Both battery terminals connected to same point (common terminal short)
+  if (battery) {
+    const hasCommonTerminalShort = checkCommonTerminalShort(battery);
+    if (hasCommonTerminalShort) {
+      shortCircuitReason = 'Common terminal short: both battery terminals connect to the same point.';
+    }
+  }
+
+  // Check 1: Direct battery short (positive to negative without any load)
+  if (!shortCircuitReason && battery) {
+    const hasDirectBatteryShort = checkDirectShortPath(battery, ['resistor', 'bulb']);
+    if (hasDirectBatteryShort) {
+      shortCircuitReason = 'Direct short: battery terminals connected without load.';
+    }
+  }
+
+  // Check 2: Resistor bypass (loop exists that doesn't include resistor)
+  if (!shortCircuitReason && hasResistor && battery) {
+    const withoutResistor = circuitGraph('resistor');
+    const shorted = circuitGraphHasCycle(withoutResistor, battery);
+    if (shorted) {
+      shortCircuitReason = 'Resistor bypassed: current can flow without resistance.';
+    }
+  }
+
+  // Check 3: Bulb bypass when bulb is present (similar to resistor bypass)
+  if (!shortCircuitReason && battery) {
+    const hasBulb = circuit.components.some(component => component.type === 'bulb');
+    if (hasBulb) {
+      const withoutBulb = circuitGraph('bulb');
+      const shorted = circuitGraphHasCycle(withoutBulb, battery);
+      if (shorted) {
+        shortCircuitReason = 'Bulb bypassed: current can flow without load.';
+      }
+    }
+  }
+
+  // Check 4: Multiple parallel paths with minimal resistance
+  if (!shortCircuitReason && hasResistor && battery) {
+    const graph = circuitGraph();
+    if (circuitGraphHasCycle(graph, battery)) {
+      // Count parallel paths through resistor
+      const pathsThroughResistor = countPathsThroughComponent(graph, battery, 'resistor');
+      const totalPaths = countTotalPaths(graph, battery);
+      if (totalPaths > pathsThroughResistor) {
+        shortCircuitReason = 'Parallel short: additional path bypasses resistor.';
+      }
+    }
+  }
+
+  setCircuitShorted(Boolean(shortCircuitReason));
 
   if (circuit.shortCircuited) {
     circuit.connected = false;
-    circuit.message = 'SHORT CIRCUIT: the loop bypasses the resistor. Clear the wires to stop the simulated fire.';
+    circuit.message = `SHORT CIRCUIT: ${shortCircuitReason} Clear the wires to stop the simulated fire.`;
     updateCircuitUI();
     return;
   }
@@ -2109,6 +2161,129 @@ function checkCircuitConnectivity() {
       ? 'Circuit complete. Close the switch to light the LED.'
       : 'Connect one lead to each terminal and complete the loop through the resistor.';
   updateCircuitUI();
+}
+
+// Helper: Check if both terminals of a component connect to the same terminal of another component
+function checkCommonTerminalShort(battery) {
+  // Check if both battery terminals connect to the same component terminal
+  for (const component of circuit.components) {
+    if (component === battery) continue;
+
+    for (let terminalIndex = 0; terminalIndex < 2; terminalIndex++) {
+      // Check if both battery terminals connect to this component terminal
+      const battery0Connected = circuit.wires.some(wire =>
+        (wire.from === battery && wire.fromTerminal === 0 && wire.to === component && wire.toTerminal === terminalIndex) ||
+        (wire.to === battery && wire.toTerminal === 0 && wire.from === component && wire.fromTerminal === terminalIndex)
+      );
+      const battery1Connected = circuit.wires.some(wire =>
+        (wire.from === battery && wire.fromTerminal === 1 && wire.to === component && wire.toTerminal === terminalIndex) ||
+        (wire.to === battery && wire.toTerminal === 1 && wire.from === component && wire.fromTerminal === terminalIndex)
+      );
+
+      if (battery0Connected && battery1Connected) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Helper: Check if there's a direct path from battery positive to negative that doesn't go through specified components
+function checkDirectShortPath(battery, requiredComponents) {
+  // Simple check: directly connected terminals without any intermediate components
+  const directWire = circuit.wires.find(wire =>
+    (wire.from === battery && wire.fromTerminal === 0 && wire.to === battery && wire.toTerminal === 1) ||
+    (wire.from === battery && wire.fromTerminal === 1 && wire.to === battery && wire.toTerminal === 0)
+  );
+  if (directWire) {
+    return true;
+  }
+
+  // BFS from battery terminal 0 (positive) to terminal 1 (negative)
+  const visited = new Set();
+  const queue = [{ component: battery, terminal: 0, path: [] }];
+
+  while (queue.length > 0) {
+    const { component, terminal, path } = queue.shift();
+    const key = `${component.type}_${terminal}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+
+    // Check if we reached battery negative terminal
+    if (component === battery && terminal === 1 && path.length > 0) {
+      // Check if path doesn't go through any load component
+      const hasLoadComponent = path.some(step => requiredComponents.includes(step.type));
+      if (!hasLoadComponent) {
+        return true;
+      }
+    }
+
+    // Find all wires connected to this terminal
+    const connectedWires = circuit.wires.filter(wire =>
+      (wire.from === component && wire.fromTerminal === terminal) ||
+      (wire.to === component && wire.toTerminal === terminal)
+    );
+
+    for (const wire of connectedWires) {
+      const nextComponent = wire.from === component ? wire.to : wire.from;
+      const nextTerminal = wire.from === component ? wire.toTerminal : wire.fromTerminal;
+      queue.push({
+        component: nextComponent,
+        terminal: nextTerminal,
+        path: [...path, nextComponent]
+      });
+    }
+  }
+
+  return false;
+}
+
+// Helper: Count paths through a specific component
+function countPathsThroughComponent(graph, start, componentType) {
+  let count = 0;
+  const visited = new Set();
+  const traverse = (current, parent, foundComponent) => {
+    const key = current.type;
+    if (visited.has(key) && current !== parent) return;
+    visited.add(key);
+
+    if (current.type === componentType && foundComponent) {
+      count++;
+      return;
+    }
+
+    for (const neighbor of graph.adjacency.get(current) ?? []) {
+      if (neighbor === parent) continue;
+      traverse(neighbor, current, foundComponent || current.type === componentType);
+    }
+  };
+
+  if (graph.adjacency.has(start)) {
+    traverse(start, null, false);
+  }
+  return count;
+}
+
+// Helper: Count total paths in the circuit
+function countTotalPaths(graph, start) {
+  let count = 0;
+  const visited = new Set();
+  const traverse = (current, parent) => {
+    const key = current.type;
+    if (visited.has(key) && current !== parent) return;
+    visited.add(key);
+
+    for (const neighbor of graph.adjacency.get(current) ?? []) {
+      if (neighbor === parent) continue;
+      count++;
+      traverse(neighbor, current);
+    }
+  };
+
+  if (graph.adjacency.has(start)) {
+    traverse(start, null);
+  }
+  return count;
 }
 
 function getCircuitCurrent() {
@@ -2337,6 +2512,7 @@ function updateTempWire(endPosition) {
 }
 
 function createWireBetween(endpointA, endpointB) {
+  // Rule 1: Check if already connected
   const sameConnection = wire =>
     (wire.from === endpointA.component && wire.fromTerminal === endpointA.terminalIndex && wire.to === endpointB.component && wire.toTerminal === endpointB.terminalIndex) ||
     (wire.from === endpointB.component && wire.fromTerminal === endpointB.terminalIndex && wire.to === endpointA.component && wire.toTerminal === endpointA.terminalIndex);
@@ -2344,6 +2520,26 @@ function createWireBetween(endpointA, endpointB) {
     circuit.message = 'Those two terminals are already connected.';
     return false;
   }
+
+  // Rule 2: Cannot connect both terminals of one component to the same terminal of another
+  const checkBothTerminalsToSame = (compA, compB, terminalB) => {
+    const hasConnection0 = circuit.wires.some(w =>
+      (w.from === compA && w.fromTerminal === 0 && w.to === compB && w.toTerminal === terminalB) ||
+      (w.to === compA && w.toTerminal === 0 && w.from === compB && w.fromTerminal === terminalB)
+    );
+    const hasConnection1 = circuit.wires.some(w =>
+      (w.from === compA && w.fromTerminal === 1 && w.to === compB && w.toTerminal === terminalB) ||
+      (w.to === compA && w.toTerminal === 1 && w.from === compB && w.fromTerminal === terminalB)
+    );
+    return hasConnection0 && hasConnection1;
+  };
+
+  if (checkBothTerminalsToSame(endpointA.component, endpointB.component, endpointB.terminalIndex) ||
+      checkBothTerminalsToSame(endpointB.component, endpointA.component, endpointA.terminalIndex)) {
+    circuit.message = 'Invalid connection: both terminals cannot connect to the same point.';
+    return false;
+  }
+
   const color = circuit.wires.length % 2 === 0 ? 0xc84a45 : 0x283744;
   const mesh = new THREE.Mesh(
     makeWireGeometry(
