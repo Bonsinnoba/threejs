@@ -86,6 +86,45 @@ const DEFS = {
     },
     label_: { kind: 'cyl', radius: 0.28, y: 1.35, h: 2.0, arc: 1.8, grad: { max: 100, steps: 20, major: 5 } },
   },
+  burette: {
+    label: 'Burette', thickness: 0.03, capacityMl: 50, fillTopY: 5.2, fillBaseY: 1.2,
+    outer() {
+      return dedupe([[0.035, 0], [0.035, 0.3], [0.17, 0.75], [0.17, 5.45], [0.2, 5.5]]);
+    },
+    // 0 mL at the top mark, 50 mL at the bottom mark (reversed scale)
+    label_: { kind: 'cyl', radius: 0.17, y: 3.2, h: 4.0, arc: 1.5, grad: { max: 50, steps: 50, major: 5, reverse: true }, canvas: [64, 1024] },
+  },
+  pipette: {
+    label: 'Volumetric pipette', thickness: 0.02, capacityMl: 25, fillTopY: 3.0,
+    outer() {
+      const pts = [[0.03, 0], [0.03, 0.45], [0.07, 0.95], [0.07, 1.4]];
+      for (let i = 1; i <= 16; i++) {
+        const y = 1.4 + (1.1 * i) / 16;
+        const s = Math.sin((PI * (y - 1.4)) / 1.1);
+        pts.push([0.07 + 0.23 * Math.pow(Math.max(s, 0), 0.8), y]);
+      }
+      pts.push([0.07, 3.55], [0.085, 3.6]);
+      return dedupe(pts);
+    },
+    label_: null,
+  },
+  'volumetric-flask': {
+    label: 'Volumetric flask', thickness: 0.03, capacityMl: 250, fillTopY: 1.7,
+    outer() {
+      const R = 0.62, cy = 0.56, rn = 0.13, neckTop = 2.0, rl = 0.17, topY = 2.08;
+      const a0 = Math.asin(-cy / R), rBase = Math.sqrt(R * R - cy * cy), aEnd = Math.acos(rn / R);
+      return dedupe([[0, 0], [rBase, 0], ...arc(0, cy, R, a0, aEnd, 28), [rn, neckTop], [rl, neckTop + 0.04], [rl, topY]]);
+    },
+    label_: { kind: 'sphere', radius: 0.62, cy: 0.56, phiLen: 0.9, thetaLen: 0.36, text: '250 mL' },
+    stopper: { rTop: 0.1, rBot: 0.085, y0: 1.85, y1: 2.1, capR: 0.23, capY0: 2.1, capY1: 2.17 },
+  },
+  funnel: {
+    label: 'Glass funnel', thickness: 0.025, capacityMl: 100, fillTopY: 1.6,
+    outer() {
+      return dedupe([[0.08, 0], [0.08, 0.9], [0.8, 1.8], [0.84, 1.86]]);
+    },
+    label_: null,
+  },
   'test-tube': {
     label: 'Test tube', thickness: 0.025, capacityMl: 25, fillTopY: 1.4,
     outer() {
@@ -107,13 +146,15 @@ export function buildProfile(type) {
   const inner = offsetProfile(outer, d.thickness);
   return {
     type, outer, inner,
-    thickness: d.thickness, capacityMl: d.capacityMl, fillTopY: d.fillTopY,
+    thickness: d.thickness, capacityMl: d.capacityMl, fillTopY: d.fillTopY, fillBaseY: d.fillBaseY ?? 0,
     labelSpec: d.label_, stopper: d.stopper ?? null,
   };
 }
 
 // Volume table over the inner wall so fill-by-mL gives the correct liquid height for any shape.
-export function makeFillTable(inner, fillTopY, capacityMl) {
+// baseY: the lower graduation mark. Volumes are measured from it, so e.g. a burette reads 0..50 mL between its
+// two marks while the tip below the 50 mL mark stays full whenever there is any liquid.
+export function makeFillTable(inner, fillTopY, capacityMl, baseY = 0) {
   const rows = [];
   for (const [r, y] of inner) {
     if (rows.length && y <= rows[rows.length - 1].y + 1e-6) continue; // keep y strictly rising
@@ -127,12 +168,11 @@ export function makeFillTable(inner, fillTopY, capacityMl) {
     }
     rows.push({ r, y, v: 0 });
   }
-  for (let i = 1; i < rows.length; i++) {
-    const a = rows[i - 1], b = rows[i];
-    rows[i].v = a.v + (PI * (a.r * a.r + a.r * b.r + b.r * b.r) / 3) * (b.y - a.y);
-  }
-  const total = rows[rows.length - 1].v;
-  const rAt = (y) => {
+  const frustum = (r1, r2, dy) => (PI * (r1 * r1 + r1 * r2 + r2 * r2) / 3) * dy;
+  for (let i = 1; i < rows.length; i++) rows[i].v = rows[i - 1].v + frustum(rows[i - 1].r, rows[i].r, rows[i].y - rows[i - 1].y);
+  const y0 = rows[0].y;
+  const rAt = (yy) => {
+    const y = Math.max(yy, y0);
     for (let i = 1; i < rows.length; i++) {
       if (y <= rows[i].y) {
         const a = rows[i - 1], b = rows[i];
@@ -141,15 +181,23 @@ export function makeFillTable(inner, fillTopY, capacityMl) {
     }
     return rows[rows.length - 1].r;
   };
-  const heightForMl = (ml) => {
-    const v = Math.min(Math.max(ml / capacityMl, 0), 1) * total;
+  const vAt = (yy) => {
+    const y = Math.max(yy, y0);
     for (let i = 1; i < rows.length; i++) {
-      if (v <= rows[i].v) {
-        const a = rows[i - 1], b = rows[i];
-        return a.y + ((v - a.v) / (b.v - a.v || 1)) * (b.y - a.y);
-      }
+      if (y <= rows[i].y) return rows[i - 1].v + frustum(rows[i - 1].r, rAt(y), y - rows[i - 1].y);
     }
-    return rows[rows.length - 1].y;
+    return rows[rows.length - 1].v;
+  };
+  const vBase = vAt(baseY);
+  const totalVolume = vAt(fillTopY) - vBase;
+  const heightForMl = (ml) => {
+    const target = vBase + Math.min(Math.max(ml / capacityMl, 0), 1) * totalVolume;
+    let lo = Math.max(baseY, y0), hi = fillTopY;
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (vAt(mid) < target) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
   };
   // Closed liquid profile up to height h: bottom centre -> wall -> surface -> axis.
   const liquidProfile = (h) => {
@@ -157,5 +205,5 @@ export function makeFillTable(inner, fillTopY, capacityMl) {
     pts.push([rAt(h), h], [0, h]);
     return pts;
   };
-  return { rows, totalVolume: total, heightForMl, liquidProfile, rAt };
+  return { rows, totalVolume, heightForMl, liquidProfile, rAt };
 }

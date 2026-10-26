@@ -72,23 +72,25 @@ function roundRectPath(g, w, h, r) {
 function labelTexture(text, spec = {}) {
   const portrait = !!spec.grad;
   const c = document.createElement('canvas');
-  c.width = portrait ? 160 : 512;
-  c.height = portrait ? 512 : 256;
+  const [cw0, ch0] = portrait ? (spec.canvas ?? [160, 512]) : [512, 256];
+  c.width = cw0;
+  c.height = ch0;
   const g = c.getContext('2d');
   g.clearRect(0, 0, c.width, c.height);
   if (portrait) {
-    const { max, steps, major } = spec.grad;
+    const { max, steps, major, reverse } = spec.grad;
+    const cw = c.width, ch = c.height;
     g.strokeStyle = 'rgba(235,242,246,0.85)';
     g.fillStyle = 'rgba(235,242,246,0.9)';
-    g.lineWidth = 3;
-    g.font = '26px "Segoe UI", sans-serif';
+    g.lineWidth = Math.max(2, cw * 0.02);
+    g.font = `${Math.max(18, cw * 0.16)}px "Segoe UI", sans-serif`;
     g.textBaseline = 'middle';
     g.textAlign = 'left';
     for (let i = 0; i <= steps; i++) {
-      const y = 500 - (i / steps) * 488;
+      const y = ch - 8 - (i / steps) * (ch - 16);
       const isMajor = i % major === 0;
-      g.beginPath(); g.moveTo(14, y); g.lineTo(14 + (isMajor ? 64 : 34), y); g.stroke();
-      if (isMajor) g.fillText(String(Math.round((max * i) / steps)), 86, y);
+      g.beginPath(); g.moveTo(cw * 0.09, y); g.lineTo(cw * (isMajor ? 0.51 : 0.31), y); g.stroke();
+      if (isMajor) g.fillText(String(Math.round((max * (reverse ? steps - i : i)) / steps)), cw * 0.54, y);
     }
   } else {
     if (spec.paper) {
@@ -154,7 +156,7 @@ const toVec2 = (pts) => pts.map(([r, y]) => new THREE.Vector2(r, y));
  */
 export function createGlassware(type, { envMap = mainEnv, label, volumeMl = 0, color = 0x4fb3ff } = {}) {
   const prof = buildProfile(type);
-  const fill = makeFillTable(prof.inner, prof.fillTopY, prof.capacityMl);
+  const fill = makeFillTable(prof.inner, prof.fillTopY, prof.capacityMl, prof.fillBaseY);
 
   // Wall = outer going up, then inner coming back down, so the lathe has real thickness.
   const wall = [...prof.outer, ...[...prof.inner].reverse()];
@@ -193,12 +195,39 @@ export function createGlassware(type, { envMap = mainEnv, label, volumeMl = 0, c
   const labelMesh = makeLabel(prof.labelSpec, label);
   if (labelMesh) group.add(labelMesh);
 
+  // type-specific extras
+  const parts = {};
+  const ring = (r, y) => {
+    const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.006, 6, 32), new THREE.MeshBasicMaterial({ color: 0x1a3a6b, toneMapped: false }));
+    m.rotation.x = Math.PI / 2;
+    m.position.y = y;
+    m.renderOrder = 3;
+    group.add(m);
+  };
+  if (type === 'pipette') ring(0.076, prof.fillTopY);
+  if (type === 'volumetric-flask') ring(0.136, prof.fillTopY);
+  if (type === 'burette') {
+    const key = new THREE.Group();
+    key.position.set(0, 0.95, 0);
+    const ptfe = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.4 });
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.5, 16), ptfe);
+    barrel.rotation.z = Math.PI / 2;
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.5), ptfe);
+    handle.position.x = 0.3;
+    key.add(barrel, handle);
+    key.traverse((o) => { o.userData.part = 'stopcock'; });
+    group.add(key);
+    // closed = handle across the tube (rotation 0); open = handle along the tube
+    parts.stopcock = { key, open: false, setOpen(v) { this.open = v; key.rotation.x = v ? Math.PI / 2 : 0; } };
+  }
+
   const vessel = {
     type,
     group,
     capacityMl: prof.capacityMl,
     volumeMl: 0,
     liquidMesh: liquid,
+    parts,
     setLiquidColor(hex) {
       liquidMat.color.set(hex);
     },

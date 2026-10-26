@@ -582,7 +582,7 @@ async function addEquipmentAtWorkbenchLocation(type, x, z) {
 
 // ---------------- Hooke's Law experiment ----------------
 const hooke = {
-  active: true,
+  active: false,
   spring: null,
   masses: [],
   pendingMass: null,
@@ -964,7 +964,10 @@ const chemistry = {
 const chemistryStockConcentration = 0.1;
 
 function clearChemistry() {
-  if (chemistry.beaker) scene.remove(chemistry.beaker);
+  if (chemistry.beaker) {
+    chemistry.beaker.dispose();
+    scene.remove(chemistry.beaker.group);
+  }
   if (chemistry.acidBottle) scene.remove(chemistry.acidBottle);
   if (chemistry.baseBottle) scene.remove(chemistry.baseBottle);
   if (chemistry.precipitateBottle) scene.remove(chemistry.precipitateBottle);
@@ -999,211 +1002,46 @@ function clearChemistry() {
 }
 
 async function createChemBeaker() {
-  const model = await loadConicalFlask();
-  if (model) {
-    const flask = new THREE.Group();
-    const visual = cloneModel(model);
-    visual.traverse(object => {
-      if (!object.isMesh) return;
-      const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material];
-      const glassMaterials = sourceMaterials.map(material => {
-        const glass = material.clone();
-        glass.transparent = true;
-        glass.opacity = 0.28;
-        glass.depthWrite = false;
-        glass.side = THREE.DoubleSide;
-        return glass;
-      });
-      object.material = Array.isArray(object.material) ? glassMaterials : glassMaterials[0];
-    });
-    flask.add(visual);
-    flask.position.set(0, 1.2, 0);
-    flask.userData.isChemFlask = true;
-    flask.userData.flaskTopY = new THREE.Box3().setFromObject(visual).max.y;
+  // Use the new procedural glassware system
+  const vessel = createGlassware('conical-flask', { volumeMl: 0, color: 0x78d7ff });
+  vessel.group.position.set(0, BENCH.topY, 0);
+  vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  vessel.group.userData.isChemFlask = true;
+  vessel.group.userData.flaskTopY = 1.2 + vessel.capacityMl * 0.001; // Approximate top height
 
-    const liquid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.24, 0.3, 0.3, 32),
-      new THREE.MeshPhysicalMaterial({ color: chemistry.liquidTargetColor, transparent: true, opacity: 0.68, roughness: 0.18, depthWrite: false })
-    );
-    liquid.position.y = 0.45;
-    liquid.renderOrder = 1;
-    flask.add(liquid);
-    chemistry.liquid = liquid;
-
-    return flask;
-  }
-
-  // Fallback to abstract model
-  const group = new THREE.Group();
-  const glass = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.95, 0.82, 1.65, 48, 1, true),
-    new THREE.MeshPhysicalMaterial({ color: 0xcfefff, transparent: true, opacity: 0.24, roughness: 0.05, transmission: 0.1 })
-  );
-  glass.position.y = 1.12;
-  group.add(glass);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.055, 12, 48), new THREE.MeshStandardMaterial({ color: 0xe2e8f0 }));
-  rim.rotation.x = Math.PI / 2;
-  rim.position.y = 1.95;
-  group.add(rim);
-  const liquid = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.24, 0.3, 0.3, 32),
-    new THREE.MeshPhysicalMaterial({ color: chemistry.liquidTargetColor, transparent: true, opacity: 0.68, roughness: 0.18, depthWrite: false })
-  );
-  group.add(liquid);
-  liquid.renderOrder = 1;
-  groundCircuitModel(group);
-  const flask = new THREE.Group();
-  flask.position.set(0, 1.2, 0);
-  flask.userData.isChemFlask = true;
-  flask.userData.flaskTopY = new THREE.Box3().setFromObject(group).max.y;
-  flask.add(group);
-  liquid.position.y = 0.45;
-  chemistry.liquid = liquid;
-  return flask;
+  return vessel;
 }
 
 function createAcidBottle() {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
-    new THREE.MeshStandardMaterial({ color: 0xf05a67, roughness: 0.4 })
-  );
-  body.position.y = 0.9;
-  group.add(body);
-
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
-    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
-  );
-  neck.position.y = 1.4;
-  group.add(neck);
-
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
-    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
-  );
-  cap.position.y = 1.55;
-  group.add(cap);
-
-  const label = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.15, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  label.position.set(0, 0.9, 0.27);
-  group.add(label);
-
-  group.userData.isAcidBottle = true;
-  group.position.set(-2.5, 1.2, 0);
-  setupModelShadows(group);
-  return group;
+  const vessel = createGlassware('reagent-bottle', { label: 'HCl 0.1 M', volumeMl: 0 });
+  vessel.group.position.set(-2.5, BENCH.topY, 0);
+  vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  vessel.group.userData.isAcidBottle = true;
+  return vessel.group;
 }
 
 function createBaseBottle() {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
-    new THREE.MeshStandardMaterial({ color: 0x7b61ff, roughness: 0.4 })
-  );
-  body.position.y = 0.9;
-  group.add(body);
-
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
-    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
-  );
-  neck.position.y = 1.4;
-  group.add(neck);
-
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
-    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
-  );
-  cap.position.y = 1.55;
-  group.add(cap);
-
-  const label = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.15, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  label.position.set(0, 0.9, 0.27);
-  group.add(label);
-
-  group.userData.isBaseBottle = true;
-  group.position.set(2.5, 1.2, 0);
-  setupModelShadows(group);
-  return group;
+  const vessel = createGlassware('reagent-bottle', { label: 'NaOH 0.1 M', volumeMl: 0 });
+  vessel.group.position.set(2.5, BENCH.topY, 0);
+  vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  vessel.group.userData.isBaseBottle = true;
+  return vessel.group;
 }
 
 function createPrecipitateBottle() {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
-    new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.4 })
-  );
-  body.position.y = 0.9;
-  group.add(body);
-
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
-    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
-  );
-  neck.position.y = 1.4;
-  group.add(neck);
-
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
-    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
-  );
-  cap.position.y = 1.55;
-  group.add(cap);
-
-  const label = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.15, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  label.position.set(0, 0.9, 0.27);
-  group.add(label);
-
-  group.userData.isPrecipitateBottle = true;
-  group.position.set(-3.5, 1.2, 0.5);
-  setupModelShadows(group);
-  return group;
+  const vessel = createGlassware('reagent-bottle', { label: 'AgNO₃ 0.1 M', volumeMl: 0 });
+  vessel.group.position.set(-3.5, BENCH.topY, 0.5);
+  vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  vessel.group.userData.isPrecipitateBottle = true;
+  return vessel.group;
 }
 
 function createGasBottle() {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.28, 0.8, 24),
-    new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.4 })
-  );
-  body.position.y = 0.9;
-  group.add(body);
-
-  const neck = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.12, 0.25, 16),
-    new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.75 })
-  );
-  neck.position.y = 1.4;
-  group.add(neck);
-
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.1, 16),
-    new THREE.MeshStandardMaterial({ color: 0x7c2d12 })
-  );
-  cap.position.y = 1.55;
-  group.add(cap);
-
-  const label = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.15, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  label.position.set(0, 0.9, 0.27);
-  group.add(label);
-
-  group.userData.isGasBottle = true;
-  group.position.set(3.5, 1.2, 0.5);
-  setupModelShadows(group);
-  return group;
+  const vessel = createGlassware('reagent-bottle', { label: 'Na₂CO₃ 0.1 M', volumeMl: 0 });
+  vessel.group.position.set(3.5, BENCH.topY, 0.5);
+  vessel.group.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  vessel.group.userData.isGasBottle = true;
+  return vessel.group;
 }
 
 function createBunsenBurner() {
@@ -1425,15 +1263,15 @@ function createHeatingEffect() {
   return group;
 }
 
-function setChemistryLiquid(color, height = 0.72) {
-  if (!chemistry.liquid) return;
+function setChemistryLiquid(color, volumeMl = 0) {
+  if (!chemistry.beaker) return;
   chemistry.liquidTargetColor.set(color);
-  chemistry.liquid.material.color.lerp(chemistry.liquidTargetColor, 0.35);
-  chemistry.liquid.scale.y = Math.max(0.15, height / 0.72);
-  chemistry.liquid.position.y = 0.46 + height / 2;
+  chemistry.beaker.setLiquidColor(color);
+  chemistry.beaker.setVolume(volumeMl);
 }
 
 function chemistryState() {
+  const maxVolume = chemistry.beaker ? chemistry.beaker.capacityMl : 250;
   if (chemistry.volume <= 0) {
     return { ph: null, color: 0xcfefff, label: 'Empty', concentration: null, concentrationLabel: 'No solution', reaction: 'None' };
   }
@@ -1496,13 +1334,14 @@ function applyChemistryAction(type) {
     updateChemistryUI();
     return;
   }
-  if (chemistry.volume >= 0.6) {
+  const maxVolume = chemistry.beaker ? chemistry.beaker.capacityMl : 250;
+  if (chemistry.volume >= maxVolume) {
     chemistry.message = 'The flask is full. Reset to start a new experiment.';
     updateChemistryUI();
     return;
   }
   chemistry[remainingKey] = Math.max(0, Math.round((chemistry[remainingKey] - 0.05) * 100) / 100);
-  chemistry.volume = Math.min(0.6, chemistry.volume + 0.05);
+  chemistry.volume = Math.min(maxVolume, chemistry.volume + 5);
 
   if (type === 'acid') {
     chemistry.acid += 0.3;
@@ -1554,7 +1393,7 @@ function resetChemistry() {
   chemistry.precipitate = [];
   chemistry.droplets = [];
   chemistry.gasParticles = [];
-  updateChemistryLiquid(chemistryState().color, chemistry.volume);
+  if (chemistry.beaker) chemistry.beaker.setVolume(0);
   updateChemistryUI();
 }
 
@@ -1584,7 +1423,7 @@ function updateChemistryUI() {
   const gasRemaining = document.querySelector('#chem-gas-remaining');
   if (phValue) phValue.textContent = state.ph === null ? 'pH --' : `pH ${state.ph.toFixed(1)}`;
   if (phState) phState.textContent = state.label;
-  if (volumeValue) volumeValue.textContent = `${Math.round(chemistry.volume * 100)} mL`;
+  if (volumeValue) volumeValue.textContent = `${Math.round(chemistry.volume)} mL`;
   if (concentrationValue) concentrationValue.textContent = state.concentrationLabel;
   if (phMarker) {
     phMarker.hidden = state.ph === null;
@@ -1649,7 +1488,8 @@ async function setupChemistry() {
   clearChemistry();
   chemistry.active = true;
   chemistry.beaker = await createChemBeaker();
-  scene.add(chemistry.beaker);
+  scene.add(chemistry.beaker.group);
+  chemistry.liquid = chemistry.beaker.liquidMesh;
   chemistry.acidBottle = createAcidBottle();
   scene.add(chemistry.acidBottle);
   chemistry.baseBottle = createBaseBottle();
@@ -2919,14 +2759,18 @@ const experiments = {
 
 experimentSelect.addEventListener('change', async () => {
   const id = experimentSelect.value;
+  if (!id) {
+    // No experiment selected - clear everything
+    clearHooke();
+    clearChemistry();
+    clearCircuit();
+    experimentControls.innerHTML = '';
+    instructions.innerHTML = '<h2>Select an experiment</h2><p>Choose an experiment from the dropdown above to begin.</p>';
+    return;
+  }
   if (id === 'hooke') { await activateHooke(); return; }
   if (id === 'chemistry') { await activateChemistry(); return; }
   if (id === 'circuit') { await activateCircuit(); return; }
-  clearHooke();
-  clearChemistry();
-  clearCircuit();
-  experimentControls.innerHTML = '';
-  instructions.innerHTML = `<h2>${experiments[id].title}</h2><p>${experiments[id].description}</p><ol>${experiments[id].steps.map(step => `<li>${step}</li>`).join('')}</ol>`;
 });
 
 document.querySelector('#reset').addEventListener('click', async () => {
@@ -2936,8 +2780,12 @@ document.querySelector('#reset').addEventListener('click', async () => {
   selected = null;
   selectEquipmentForRemoval(null);
   inventory.reset();
-  experimentSelect.value = 'hooke';
-  await activateHooke();
+  experimentSelect.value = '';
+  clearHooke();
+  clearChemistry();
+  clearCircuit();
+  experimentControls.innerHTML = '';
+  instructions.innerHTML = '<h2>Select an experiment</h2><p>Choose an experiment from the dropdown above to begin.</p>';
 });
 
 let lastPhysicsTime = performance.now();
@@ -3042,5 +2890,4 @@ function animate(time = 0) {
   renderer.render(scene, camera);
 }
 
-activateHooke().catch(err => console.error('Failed to initialize Hooke experiment:', err));
 renderer.setAnimationLoop(animate);

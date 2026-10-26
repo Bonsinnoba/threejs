@@ -1,6 +1,17 @@
 // Pure helpers (no three.js) so the tricky bits can be unit-tested in Node.
 
-export const slotAccepts = (slot, size) => slot.accepts.includes(size);
+/** `it` is an item {size, tags} (or just a size string). A slot accepts a size class or any of the item's tags. */
+export function slotAccepts(slot, it) {
+  const size = typeof it === 'string' ? it : it.size;
+  const tags = typeof it === 'string' ? [] : it.tags ?? [];
+  return slot.accepts.includes(size) || tags.some((t) => slot.accepts.includes(t));
+}
+
+/** True if `item` is `host` or sits (directly or through other attached items) on `host`. Prevents attach loops. */
+export function hostChainIncludes(host, item) {
+  for (let h = host; h; h = h.slot?.host) if (h === item) return true;
+  return false;
+}
 
 /** Nearest candidate to the cursor in screen pixels. cands: [{slot, x, y}] */
 export function pickSlot(cands, cx, cy, maxPx) {
@@ -46,11 +57,12 @@ export function nudgeFree(p, others, minDist, b, iters = 16) {
     for (const o of others) {
       const dx = x - o.x, dz = z - o.z;
       const d = Math.hypot(dx, dz);
-      if (d < minDist) {
+      const md = o.minDist ?? minDist;
+      if (d < md) {
         const nx = d > 1e-6 ? dx / d : 1;
         const nz = d > 1e-6 ? dz / d : 0;
-        x = clamp(o.x + nx * minDist, b.x0, b.x1);
-        z = clamp(o.z + nz * minDist, b.z0, b.z1);
+        x = clamp(o.x + nx * md, b.x0, b.x1);
+        z = clamp(o.z + nz * md, b.z0, b.z1);
         moved = true;
       }
     }
@@ -63,9 +75,9 @@ export const inRect = (x, z, r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r
 
 /**
  * Turn a stock plan into assignments. plan: [{group, items:[defId...]}], slots carry .group/.item/.accepts.
- * sizeOf(defId) -> 'tall' | 'small' lets us reject items a slot cannot hold (e.g. a flask in a drawer).
+ * infoOf(defId) -> {size, tags} (or a size string) lets us reject items a slot cannot hold (e.g. a flask in a drawer).
  */
-export function planStock(slots, plan, sizeOf) {
+export function planStock(slots, plan, infoOf) {
   const byGroup = new Map();
   for (const s of slots) {
     if (!byGroup.has(s.group)) byGroup.set(s.group, []);
@@ -80,7 +92,7 @@ export function planStock(slots, plan, sizeOf) {
     if (entry.items.length > free.length) throw new Error(`Group ${entry.group} has ${free.length} free slots, ${entry.items.length} requested`);
     entry.items.forEach((defId, i) => {
       const slot = free[i];
-      if (sizeOf && !slotAccepts(slot, sizeOf(defId))) throw new Error(`${defId} does not fit slot ${slot.id}`);
+      if (infoOf && !slotAccepts(slot, infoOf(defId))) throw new Error(`${defId} does not fit slot ${slot.id}`);
       used.add(slot);
       out.push({ slot, defId });
     });

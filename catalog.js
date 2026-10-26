@@ -2,6 +2,7 @@
 // Later phases (reaction model, experiment library) read the same ids.
 import * as THREE from 'three';
 import { createGlassware, makeGlassMaterial, getGlassEnv, glassLabel } from './glassware.js';
+import { buildRetortStand, buildWhiteTile, buildPipetteFiller } from './apparatus.js';
 
 export const REAGENTS = {
   hcl:    { name: 'Hydrochloric acid',        short: 'HCl 0.1 M',       color: 0xe6e49a },
@@ -14,7 +15,7 @@ export const REAGENTS = {
   mo:     { name: 'Methyl orange indicator',  short: 'Methyl orange',   color: 0xf2a03a },
 };
 
-const VESSELS = ['beaker', 'round-flask', 'conical-flask', 'measuring-cylinder', 'test-tube'];
+const VESSELS = ['beaker', 'round-flask', 'conical-flask', 'measuring-cylinder', 'test-tube', 'burette', 'pipette', 'volumetric-flask', 'funnel'];
 const SMALL = {
   'watch-glass': 'Watch glass',
   'petri-dish': 'Petri dish',
@@ -23,9 +24,49 @@ const SMALL = {
   spatula: 'Spatula',
   cork: 'Cork stopper',
 };
+const APPARATUS = {
+  'retort-stand': { name: 'Retort stand + clamp', build: buildRetortStand },
+  'white-tile': { name: 'White tile', build: buildWhiteTile },
+  'pipette-filler': { name: 'Pipette filler', build: buildPipetteFiller },
+};
 
-/** 'tall' items stand on shelves/benches; 'small' items also fit in drawers. */
-export const itemSize = (defId) => (defId in SMALL ? 'small' : 'tall');
+/**
+ * Size classes decide where things can be stored:
+ *   small = drawers too, tall = shelves and cupboard (<= ~2.3 high), long = back counter only (stands, burettes, pipettes)
+ */
+const LONG = new Set(['burette', 'pipette', 'retort-stand']);
+const SMALL_APPARATUS = new Set(['white-tile', 'pipette-filler']);
+export const itemSize = (defId) => (defId in SMALL || SMALL_APPARATUS.has(defId) ? 'small' : LONG.has(defId) ? 'long' : 'tall');
+
+/** Tags let attach points ask for "a burette" or "a titration vessel" rather than a size class. */
+const TAGS = {
+  'conical-flask': ['titration-vessel', 'flask'],
+  beaker: ['titration-vessel', 'flask'],
+  'round-flask': ['flask'],
+  'volumetric-flask': ['flask'],
+  burette: ['burette'],
+  pipette: ['pipette'],
+  funnel: ['funnel'],
+  cork: ['cork'],
+  'white-tile': ['tile'],
+  'retort-stand': ['stand'],
+};
+export const itemTags = (defId) => (defId.startsWith('bottle:') ? ['reagent'] : TAGS[defId] ?? []);
+export const itemInfo = (defId) => ({ size: itemSize(defId), tags: itemTags(defId) });
+
+/**
+ * Attach points a built item offers to other items (local to the item, origin = bottom centre).
+ * The stand numbers match buildRetortStand(): clamp ring at y = 5.0 grips the burette 3.0 above its tip.
+ */
+const ATTACH = {
+  'retort-stand': [
+    { id: 'clamp', local: [0.1, 2.0, 0], accepts: ['burette'] },
+    { id: 'base', local: [0.1, 0.14, 0], accepts: ['tile', 'titration-vessel'] },
+  ],
+  'white-tile': [{ id: 'vessel', local: [0, 0.08, 0], accepts: ['titration-vessel'] }],
+  'conical-flask': [{ id: 'cork', local: [0, 1.55, 0], accepts: ['cork'] }],
+  'test-tube': [{ id: 'cork', local: [0, 1.45, 0], accepts: ['cork'] }],
+};
 
 function buildSmall(defId, env) {
   const g = new THREE.Group();
@@ -100,14 +141,26 @@ export function createItemObject(defId) {
   } else if (VESSELS.includes(defId)) {
     vessel = createGlassware(defId, { envMap: env });
     root = vessel.group;
-    name = `${glassLabel(defId)} ${vessel.capacityMl} mL`;
+    name = `${glassLabel(defId)}${defId === 'funnel' ? '' : ` ${vessel.capacityMl} mL`}`;
+  } else if (defId in APPARATUS) {
+    root = APPARATUS[defId].build();
+    name = APPARATUS[defId].name;
   } else {
     root = buildSmall(defId, env);
     name = SMALL[defId];
   }
   root.userData.equipmentType = undefined; // keep the legacy picker away from catalog items
   const box = new THREE.Box3().setFromObject(root);
-  return { root, vessel, name, size: itemSize(defId), contents, height: box.max.y - box.min.y };
+  const size3 = box.getSize(new THREE.Vector3());
+  return {
+    root, vessel, name, contents,
+    size: itemSize(defId),
+    tags: itemTags(defId),
+    attach: ATTACH[defId] ?? [],
+    parts: vessel?.parts ?? {},
+    height: size3.y,
+    radius: Math.max(size3.x, size3.z) / 2,
+  };
 }
 
 /** Where things live at the start (groups are slot groups created by labBench). */
@@ -121,6 +174,10 @@ export const DEFAULT_STOCK = [
   { group: 'drawer-1', items: ['watch-glass', 'watch-glass', 'watch-glass', 'petri-dish', 'petri-dish'] },
   { group: 'drawer-2', items: ['crucible', 'crucible', 'crucible', 'cork', 'cork', 'cork'] },
   { group: 'drawer-3', items: ['stirring-rod', 'stirring-rod', 'stirring-rod', 'spatula', 'spatula'] },
+  // titration kit lives on the back counter (long items can't go on the 2.4-high shelves)
+  { group: 'counter-stand', items: ['retort-stand'] },
+  { group: 'counter-narrow', items: ['burette', 'burette', 'pipette', 'pipette'] },
+  { group: 'counter-front', items: ['white-tile', 'white-tile', 'funnel', 'pipette-filler', 'volumetric-flask', 'volumetric-flask'] },
   { group: 'door-s1', items: ['beaker', 'beaker', 'conical-flask', 'conical-flask'] },
   { group: 'door-s2', items: ['measuring-cylinder', 'round-flask', 'test-tube', 'test-tube'] },
 ];

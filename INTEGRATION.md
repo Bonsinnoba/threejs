@@ -1,6 +1,6 @@
 # Integration guide (glassware + lab room + interactive storage)
 
-Copy these next to `main.js`: `glass-profiles.js`, `glassware.js`, `lab-logic.js`, `catalog.js`,
+Copy these next to `main.js`: `glass-profiles.js`, `glassware.js`, `apparatus.js`, `lab-logic.js`, `catalog.js`,
 `labBench.js`, `labLabels.js`, `labInventory.js`.  Run `node test-profiles.mjs && node test-logic.mjs` to check the pure maths.
 
 ## 1. main.js — imports
@@ -84,3 +84,29 @@ worktop (1.2) — so they are buried. Set their y to 1.2.
 - Click a drawer or cupboard door to open/close it; things inside are only pickable while it is open.
 - Drawers hold small items only (a flask is refused and goes home); shelves and cupboard hold anything.
 - Labels button: tags for items, fixtures and storage, hidden automatically where they would overlap (zoom in for more).
+
+## Phase 2 — apparatus and attach points (no new main.js edits needed)
+
+New items: burette (graduated 0-50 mL with a stopcock that turns), volumetric pipette, volumetric flask (with stopper),
+glass funnel, retort stand with clamp ring, white tile, pipette filler. They live on the **back counter** (long items
+cannot go on the 2.4-high shelves; the stand sits in the gap between the two shelf bays).
+
+**Attach points.** Items can offer slots to other items, using tags instead of size classes:
+
+| Host | Slot | Accepts |
+|---|---|---|
+| Retort stand | clamp ring | burette (hangs tip-down, ready over the base) |
+| Retort stand | base | white tile, or a titration vessel directly |
+| White tile | top | titration vessel (conical flask or beaker) |
+| Conical flask, test tube | neck | cork |
+
+Drag a burette near the clamp ring, a tile near the stand base, a flask near the tile (cyan ring = valid target).
+Moving the stand carries everything attached to it. Picking an attached item detaches it.
+
+Add your own: one entry in `ATTACH` in `catalog.js` (local position + accepted tags) and, if needed, a tag in `TAGS`.
+
+Events for later phases: `inventory.onChange((type, data) => ...)`; `place` now carries `attachedTo` (the host item, or null).
+`inventory.attachedTo(stand, 'burette')` returns what hangs on a host, which is what the step checker will use.
+
+Burette stopcock: `item.parts.stopcock.setOpen(true|false)` (the 3D handle is tagged `userData.part = 'stopcock'` for clicking in phase 3).
+Burette scale: volumes are measured between the 0 and 50 marks, so `vessel.setVolume(50)` fills to the 0 mark.

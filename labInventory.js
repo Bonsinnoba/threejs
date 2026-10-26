@@ -2,8 +2,8 @@
 // free slot (shelf / drawer / cupboard), onto the island or back counter, or send them back where they came from.
 // Click a drawer or door to open it. Hover for a tooltip. Emits events so later phases (steps, chemistry) can listen.
 import * as THREE from 'three';
-import { createItemObject, DEFAULT_STOCK, itemSize } from './catalog.js';
-import { pickSlot, nudgeFree, inRect, planStock, slotAccepts } from './lab-logic.js';
+import { createItemObject, DEFAULT_STOCK, itemInfo } from './catalog.js';
+import { pickSlot, nudgeFree, inRect, planStock, slotAccepts, hostChainIncludes } from './lab-logic.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SNAP_PX = 60;   // how close (screen px) the cursor must be to a slot to snap to it
@@ -16,6 +16,7 @@ export class LabInventory {
     this.raycaster = new THREE.Raycaster();
     this.ndc = new THREE.Vector2();
     this.items = new Map();
+    this.attachSlots = []; // slots that belong to items (clamp on a stand, vessel spot on a tile, neck of a flask...)
     this.listeners = [];
     this.tweens = [];
     this.down = null;
@@ -59,10 +60,22 @@ export class LabInventory {
   spawn(defId) {
     const o = createItemObject(defId);
     const item = {
-      id: `item-${++this.n}`, defId, name: o.name, size: o.size, root: o.root, vessel: o.vessel,
-      contents: o.contents ? { ...o.contents } : null, height: o.height, slot: null, state: 'stored', home: null, origin: null,
+      id: `item-${++this.n}`, defId, name: o.name, size: o.size, tags: o.tags, root: o.root, vessel: o.vessel, parts: o.parts,
+      contents: o.contents ? { ...o.contents } : null, height: o.height, radius: o.radius,
+      slot: null, state: 'stored', home: null, origin: null, attachSlots: [],
     };
     o.root.userData.labItem = item;
+    for (const spec of o.attach) {
+      const slot = {
+        id: `${item.id}:${spec.id}`, group: `${item.id}:${spec.id}`, accepts: spec.accepts, host: item, item: null,
+        parent: o.root, local: new THREE.Vector3(...spec.local),
+        // usable only while the host item itself can be reached (not hidden in a closed drawer)
+        container: { name: item.name, isOpen: () => this.isAccessible(item) },
+        world(out = new THREE.Vector3()) { o.root.localToWorld(out.copy(this.local)); return out; },
+      };
+      item.attachSlots.push(slot);
+      this.attachSlots.push(slot);
+    }
     this.scene.add(o.root);
     this.items.set(item.id, item);
     return item;
@@ -70,7 +83,7 @@ export class LabInventory {
 
   stock(plan = DEFAULT_STOCK) {
     this.bench.group.updateMatrixWorld(true);
-    for (const { slot, defId } of planStock(this.bench.slots, plan, itemSize)) {
+    for (const { slot, defId } of planStock(this.bench.slots, plan, itemInfo)) {
       const item = this.spawn(defId);
       this.placeInSlot(item, slot, false);
       item.home = { slot };
@@ -84,10 +97,19 @@ export class LabInventory {
     this.marker.visible = false;
     this.setHover(null);
     this.bench.containers.forEach((c) => c.setOpen?.(false, true));
-    this.bench.slots.forEach((s) => { s.item = null; });
+    this.allSlots().forEach((s) => { s.item = null; });
     this.items.forEach((it) => { it.slot = null; });
     this.bench.group.updateMatrixWorld(true);
     this.items.forEach((it) => { if (it.home?.slot) this.placeInSlot(it, it.home.slot, false); });
+  }
+
+  allSlots() {
+    return [...this.bench.slots, ...this.attachSlots];
+  }
+
+  /** What is attached to `host` (optionally only items carrying `tag`). */
+  attachedTo(host, tag) {
+    return host.attachSlots.map((s) => s.item).filter((it) => it && (!tag || it.tags.includes(tag)));
   }
 
   isAccessible(item) {
@@ -98,11 +120,11 @@ export class LabInventory {
     if (item.slot && item.slot !== slot) item.slot.item = null;
     slot.item = item;
     item.slot = slot;
-    item.state = 'stored';
+    item.state = slot.host ? 'attached' : 'stored';
     slot.parent.attach(item.root); // keeps its world position, so the tween starts where the item was dropped
     item.root.rotation.set(0, 0, 0);
     this.tweenTo(item.root, slot.local, animate ? 0.28 : 0);
-    this.emit('place', { item, slot });
+    this.emit('place', { item, slot, attachedTo: slot.host ?? null });
   }
 
   placeOnSurface(item, worldPos) {
@@ -118,7 +140,7 @@ export class LabInventory {
     const o = item.origin;
     if (o?.slot && !o.slot.item) return this.placeInSlot(item, o.slot);
     if (o?.pos) return this.placeOnSurface(item, o.pos);
-    const free = this.bench.slots.find((s) => !s.item && slotAccepts(s, item.size) && s.container.isOpen());
+    const free = this.bench.slots.find((s) => !s.item && slotAccepts(s, item) && s.container.isOpen());
     if (free) return this.placeInSlot(item, free);
     return undefined;
   }
@@ -230,8 +252,9 @@ export class LabInventory {
     const cy = e.clientY - rect.top;
 
     const cands = [];
-    for (const s of this.bench.slots) {
-      if (s.item || !slotAccepts(s, item.size) || !s.container.isOpen()) continue;
+    for (const s of this.allSlots()) {
+      if (s.item || !slotAccepts(s, item) || !s.container.isOpen()) continue;
+      if (s.host && hostChainIncludes(s.host, item)) continue; // can't attach something to itself or to its own attachments
       s.world(this._tmp);
       this._tmp.y += item.height / 2;
       this._tmp.project(this.camera);
@@ -279,7 +302,9 @@ export class LabInventory {
     if (!cancelled && cand) { this.placeInSlot(item, cand); return; }
     if (!cancelled && surface) {
       const others = [];
-      this.items.forEach((o) => { if (o !== item && o.state === 'bench') others.push({ x: o.root.position.x, z: o.root.position.z }); });
+      this.items.forEach((o) => {
+        if (o !== item && o.state === 'bench') others.push({ x: o.root.position.x, z: o.root.position.z, minDist: o.radius + item.radius + 0.15 });
+      });
       const s = surface.surface;
       const p = nudgeFree({ x: surface.point.x, z: surface.point.z }, others, 1.5, s);
       if (!s.exclude.some((r) => inRect(p.x, p.z, r))) {
@@ -299,7 +324,7 @@ export class LabInventory {
     const y = e.clientY - r.top;
     if (hit.type === 'item') {
       const it = hit.item;
-      const sub = it.contents ? `${it.contents.ml} mL` : it.vessel ? 'Empty — drag to move' : 'Drag to move';
+      const sub = it.slot?.host ? `On ${it.slot.host.name}` : it.contents ? `${it.contents.ml} mL` : it.vessel ? 'Empty — drag to move' : 'Drag to move';
       this.hoverBox.setFromObject(it.root);
       this.hoverBox.visible = true;
       this.dom.style.cursor = 'grab';

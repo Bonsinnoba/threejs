@@ -148,6 +148,13 @@ export function createLabBench(scene) {
   box(group, 20.2, 0.1, 1.5, M.counterTop, 0, TOP - 0.05, -8.3);
   for (let x = -9.5; x <= 9.5; x += 2.5) box(group, 0.03, COUNTER_H - 0.6, 0.03, M.plinth, x, FLOOR + COUNTER_H / 2, -7.59, { shadow: false });
 
+  // storage positions on the back counter (a "container" that is always open)
+  const counterC = { id: 'counter', name: 'Back counter', kind: 'surface', isOpen: () => true, toggle() {}, update() {}, pick: null, anchor: () => V(0, TOP + 0.05, -8.3) };
+  // x = 0 is the gap between the two shelf bays (so a 7-high retort stand clears them); the narrow ends take burettes/pipettes
+  addSlots('counter-stand', counterC, group, [V(0, TOP, -8.2)], ['long', 'tall', 'small']);
+  addSlots('counter-narrow', counterC, group, [-9.4, -8.8, 8.8, 9.4].map((x) => V(x, TOP, -8.3)), ['long', 'tall', 'small']);
+  addSlots('counter-front', counterC, group, [-6.6, -4.9, -3.2, 3.2, 4.9, 6.6].map((x) => V(x, TOP, -7.95)), ['tall', 'small']);
+
   // ----- wall shelving bays (always open) -----
   const SHELF_YS = [6.2, 8.6, 11.0];
   const wallContainers = [];

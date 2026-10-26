@@ -86,9 +86,14 @@
 <div class="section-title">Experiments</div>
 <div class="experiment-dropdown">
   <select id="experiment-select" class="experiment-select">
-    <option value="hooke" selected>Hooke's Law</option>
-    <option value="chemistry">Chemistry Reactions</option>
-    <option value="circuit">Simple Circuit</option>
+    <option value="" selected>Select an experiment</option>
+    <optgroup label="Physics">
+      <option value="hooke">Hooke's Law</option>
+      <option value="circuit">Simple Circuit</option>
+    </optgroup>
+    <optgroup label="Chemistry">
+      <option value="chemistry">Chemistry Reactions</option>
+    </optgroup>
   </select>
 </div>
 <div id="instructions" class="instructions"></div>
